@@ -1,0 +1,10 @@
+{
+  "creator": "1.0.0",
+  "engine": "cocos-creator",
+  "version": "1.0.0",
+  "settings": {
+    "import": {
+      "polyfills": false
+    }
+  }
+}

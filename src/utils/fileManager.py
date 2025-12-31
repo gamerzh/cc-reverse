@@ -19,8 +19,10 @@ class FileManager:
             dst (str): 目标文件路径
             show_progress (bool): 是否显示进度条
         """
-        # 确保目标目录存在
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        # 确保目标目录存在，跳过当前目录（空字符串）
+        dst_dir = os.path.dirname(dst)
+        if dst_dir:
+            os.makedirs(dst_dir, exist_ok=True)
         shutil.copy2(src, dst)
     
     def copyDirectory(self, src, dst, show_progress=False):
@@ -59,8 +61,10 @@ class FileManager:
             path (str): 文件路径
             content (str or bytes): 文件内容
         """
-        # 确保目标目录存在
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        # 确保目标目录存在，跳过当前目录（空字符串）
+        dst_dir = os.path.dirname(path)
+        if dst_dir:
+            os.makedirs(dst_dir, exist_ok=True)
         
         if isinstance(content, bytes):
             with open(path, "wb") as f:

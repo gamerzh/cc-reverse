@@ -118,17 +118,19 @@ def detectProjectVersion(sourcePath, versionHint):
     Returns:
         dict: 包含版本信息和文件路径的对象
     """
-    # 2.4.x版本的可能路径
+    import glob
+    
+    # 2.4.x版本的可能路径（支持带md5值的文件名）
     paths24x = {
         'settings': [
-            os.path.join(sourcePath, 'main.js'),
-            os.path.join(sourcePath, 'settings.js'),
-            os.path.join(sourcePath, 'src', 'settings.js')
+            os.path.join(sourcePath, 'main*.js'),
+            os.path.join(sourcePath, 'settings*.js'),
+            os.path.join(sourcePath, 'src', 'settings*.js')
         ],
         'project': [
-            os.path.join(sourcePath, 'project.js'),
-            os.path.join(sourcePath, 'main.js'),
-            os.path.join(sourcePath, 'src', 'project.js')
+            os.path.join(sourcePath, 'project*.js'),
+            os.path.join(sourcePath, 'main*.js'),
+            os.path.join(sourcePath, 'src', 'project*.js')
         ],
         'res': [
             os.path.join(sourcePath, 'assets'),
@@ -139,26 +141,35 @@ def detectProjectVersion(sourcePath, versionHint):
     
     # 2.3.x及以下版本的路径
     paths23x = {
-        'settings': [os.path.join(sourcePath, 'src', 'settings.js')],
-        'project': [os.path.join(sourcePath, 'src', 'project.js')],
+        'settings': [os.path.join(sourcePath, 'src', 'settings*.js')],
+        'project': [os.path.join(sourcePath, 'src', 'project*.js')],
         'res': [os.path.join(sourcePath, 'res')]
     }
     
     def findExistingPath(pathArray):
-        """查找存在的路径"""
-        for filePath in pathArray:
-            if os.path.exists(filePath):
-                return filePath
+        """查找存在的路径，支持通配符模式"""
+        for pattern in pathArray:
+            # 使用glob查找匹配的文件
+            matches = glob.glob(pattern)
+            if matches:
+                # 返回第一个匹配的文件
+                return matches[0]
         return None
     
-    # 如果用户提供了版本提示，优先使用对应版本的路径
-    if versionHint == '2.4.x':
+    # 特殊处理2.4.15版本提示
+    if versionHint == '2.4.15' or versionHint == '2.4.x':
         settings24 = findExistingPath(paths24x['settings'])
-        project24 = findExistingPath(paths24x['project'])
         res24 = findExistingPath(paths24x['res'])
         
-        if settings24 and project24 and res24:
-            logger().info('使用用户指定的Cocos Creator 2.4.x项目结构')
+        # 对于2.4.15版本，project.js可能不存在，尝试使用settings.js作为project.js
+        project24 = findExistingPath(paths24x['project'])
+        if not project24 and settings24:
+            # 如果找不到project.js，使用settings.js作为project.js
+            project24 = settings24
+            logger().info('未找到project.js，使用settings.js作为project.js')
+        
+        if settings24 and res24:
+            logger().info(f'使用Cocos Creator {versionHint if versionHint == "2.4.15" else "2.4.x"}项目结构')
             return {
                 'version': '2.4.x',
                 'settingsPath': settings24,
@@ -166,7 +177,7 @@ def detectProjectVersion(sourcePath, versionHint):
                 'resPath': res24
             }
         else:
-            logger().warn('用户指定2.4.x版本，但未找到对应文件结构，尝试自动检测...')
+            logger().warn(f'用户指定{versionHint if versionHint == "2.4.15" else "2.4.x"}版本，但未找到对应文件结构，尝试自动检测...')
     elif versionHint == '2.3.x':
         settings23 = findExistingPath(paths23x['settings'])
         project23 = findExistingPath(paths23x['project'])
@@ -202,7 +213,12 @@ def detectProjectVersion(sourcePath, versionHint):
     project24 = findExistingPath(paths24x['project'])
     res24 = findExistingPath(paths24x['res'])
     
-    if settings24 and project24 and res24:
+    if settings24 and res24:
+        # 对于2.4.x版本，project.js可能不存在
+        if not project24:
+            project24 = settings24
+            logger().info('未找到project.js，使用settings.js作为project.js')
+        
         logger().info('自动检测到Cocos Creator 2.4.x项目结构')
         return {
             'version': '2.4.x',
@@ -215,8 +231,8 @@ def detectProjectVersion(sourcePath, versionHint):
     raise Exception(
         f'无法检测到有效的Cocos Creator项目结构，请检查输入路径是否正确。\n'\
         f'支持的文件结构：\n'\
-        f'2.4.x: main.js/settings.js + project.js/main.js + assets/res目录\n'\
-        f'2.3.x: src/settings.js + src/project.js + res目录'
+        f'2.4.x: main*.js/settings*.js + project*.js/main*.js + assets/res目录\n'\
+        f'2.3.x: src/settings*.js + src/project*.js + res目录'
     )
 
 def validatePaths(resPath, settingsPath, projectPath):
@@ -232,10 +248,19 @@ def validatePaths(resPath, settingsPath, projectPath):
         raise Exception(f'错误: 资源路径不存在: {resPath}')
     
     if not os.path.exists(settingsPath):
-        raise Exception(f'错误: settings.js 文件不存在: {settingsPath}')
+        raise Exception(f'错误: 设置文件不存在: {settingsPath}')
     
-    if not os.path.exists(projectPath):
-        raise Exception(f'错误: project.js 文件不存在: {projectPath}')
+    # 对于2.4.15版本，projectPath可能与settingsPath相同，所以只需要验证一次
+    if projectPath != settingsPath and not os.path.exists(projectPath):
+        # 尝试查找其他可能的project文件
+        import glob
+        project_dir = os.path.dirname(projectPath)
+        project_files = glob.glob(os.path.join(project_dir, 'project*.js'))
+        if project_files:
+            # 如果找到其他project文件，使用第一个
+            raise Exception(f'错误: 指定的project.js文件不存在，但找到其他project文件: {project_files[0]}')
+        else:
+            raise Exception(f'错误: project.js 文件不存在: {projectPath}')
 
 def parseSettings(settings):
     """
