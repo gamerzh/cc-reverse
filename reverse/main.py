@@ -55,8 +55,8 @@ def cli(path, output, verbose, silent, version_hint):
     
     # 设置输出目录：不指定时默认使用本工程的output目录
     if output == "./output":
-        # 获取本工程的目录
-        project_dir = os.path.dirname(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+        # 获取本工程的目录（当前文件是 reverse/main.py，所以需要向上两级）
+        project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         output = os.path.join(project_dir, "output")
     
     # 开始逆向工程过程
