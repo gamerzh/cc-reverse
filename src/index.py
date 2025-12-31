@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cocos Creator 逆向工程工具主入口
+Cocos Creator 逆向工程工具入口文件
 """
 
 import os
@@ -9,9 +9,6 @@ import click
 from rich.console import Console
 from rich.theme import Theme
 from src.core.reverseEngine import reverseProject
-
-# 添加src目录到Python路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 # 自定义主题
 custom_theme = Theme({
@@ -48,8 +45,14 @@ def cli(path, output, verbose, silent, version_hint):
     source_path = path or os.environ.get("CC_SOURCE_PATH")
     if not source_path:
         logger()["error"]("错误: 未指定源路径，请通过命令行参数 --path 或环境变量 CC_SOURCE_PATH 指定")
-        logger()["info"]("用法: cc-reverse --path <源项目路径>")
+        logger()["info"]("用法: python -m src.index --path <源项目路径>")
         sys.exit(1)
+    
+    # 设置输出目录：不指定时默认使用本工程的output目录
+    if output == "./output":
+        # 获取本工程的目录
+        project_dir = os.path.dirname(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+        output = os.path.join(project_dir, "output")
     
     # 开始逆向工程过程
     try:

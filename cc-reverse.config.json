@@ -1,0 +1,26 @@
+{
+  "output": {
+    "createMeta": true,
+    "prettify": true,
+    "includeComments": true
+  },
+  "codeGen": {
+    "language": "typescript",
+    "moduleType": "commonjs",
+    "indentSize": 2,
+    "indent": "space"
+  },
+  "assets": {
+    "extractTextures": true,
+    "extractAudio": true,
+    "extractAnimations": true,
+    "optimizeSprites": false
+  },
+  "advanced": {
+    "debug": false,
+    "verbose": false,
+    "cacheEnabled": true,
+    "tempDir": "temp",
+    "maxParallel": 4
+  }
+}
