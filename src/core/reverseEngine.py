@@ -95,8 +95,8 @@ def reverseProject(options):
         resourceProcessor.processResources()
         
         logger().info('生成项目文件...')
-        # 生成项目
-        projectGenerator.generateProject()
+        # 生成项目，传入全局路径
+        projectGenerator.generateProject(global_paths)
         
         # 清理临时文件
         if not verbose:
