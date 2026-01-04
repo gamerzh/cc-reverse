@@ -76,6 +76,8 @@ def reverseProject(options):
         os.makedirs(output_path, exist_ok=True)
         
         # 保存全局路径信息
+        global global_paths
+        logger().info(f"设置全局路径: source={source_path}, res={project_info['resPath']}")
         global_paths = {
             'source': source_path,
             'output': output_path,
@@ -83,6 +85,7 @@ def reverseProject(options):
             'temp': temp_path,
             'ast': ast_path
         }
+        logger().debug(f"全局路径设置完成: {global_paths}")
         
         # 读取项目文件
         logger().info("读取项目配置文件...")
@@ -129,30 +132,37 @@ def reverseProject(options):
             
             for js_file in js_list:
                 # 构建完整的文件路径
-                js_file_path = os.path.join(source_path, js_file)
-                if os.path.exists(js_file_path):
-                    js_files.append(js_file_path)
-                else:
-                    # 尝试在src目录下查找
-                    js_file_path_src = os.path.join(source_path, 'src', js_file)
-                    if os.path.exists(js_file_path_src):
-                        js_files.append(js_file_path_src)
-                    else:
-                        missing_files.append(js_file)
-            
-            # 报告缺失的文件
-            if missing_files:
-                logger().warn(f'未找到 {len(missing_files)} 个脚本文件: {missing_files[:5]}{"..." if len(missing_files) > 5 else ""}')
-            
-            # 分析所有找到的脚本文件
-            if js_files:
-                logger().info(f'分析找到的 {len(js_files)} 个脚本文件...')
-                codeAnalyzer.analyzeMultipleFiles(js_files)
-                logger().success(f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
+                # 尝试多种可能的路径
+                possible_paths = [
+                    os.path.join(source_path, js_file),  # 直接在项目根目录下
+                    os.path.join(source_path, 'src', js_file),  # 在src目录下
+                    os.path.join(source_path, js_file.replace('assets/', '')),  # 移除assets前缀
+                    os.path.join(source_path, 'src', js_file.replace('assets/', ''))  # 在src目录下，移除assets前缀
+                ]
+                
+                found = False
+                for js_file_path in possible_paths:
+                    if os.path.exists(js_file_path):
+                        js_files.append(js_file_path)
+                        found = True
+                        break
+                
+                if not found:
+                    missing_files.append(js_file)
+        
+        # 报告缺失的文件
+        if missing_files:
+            logger().warn(f'未找到 {len(missing_files)} 个脚本文件: {missing_files[:5]}{"..." if len(missing_files) > 5 else ""}')
+        
+        # 分析所有找到的脚本文件
+        if js_files:
+            logger().info(f'分析找到的 {len(js_files)} 个脚本文件...')
+            codeAnalyzer.analyzeMultipleFiles(js_files)
+            logger().success(f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
         
         # 处理资源
         logger().info('开始处理资源...')
-        resourceProcessor.processResources()
+        resourceProcessor.processResources(global_paths)
         resource_stats = resourceProcessor.getResourceStats()
         logger().success(f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
         
@@ -216,17 +226,17 @@ def detectProjectVersion(sourcePath, versionHint):
     # 2.4.x版本的可能路径（支持带md5值的文件名）
     paths24x = {
         'settings': [
+            os.path.join(sourcePath, 'src', 'settings*.js'),  # 优先查找src目录下的settings文件
             os.path.join(sourcePath, 'main*.js'),
-            os.path.join(sourcePath, 'settings*.js'),
-            os.path.join(sourcePath, 'src', 'settings*.js')
+            os.path.join(sourcePath, 'settings*.js')
         ],
         'project': [
-            os.path.join(sourcePath, 'project*.js'),
-            os.path.join(sourcePath, 'main*.js'),
-            os.path.join(sourcePath, 'src', 'project*.js')
+            os.path.join(sourcePath, 'main*.js'),  # 主文件可能包含项目配置
+            os.path.join(sourcePath, 'src', 'project*.js'),
+            os.path.join(sourcePath, 'project*.js')
         ],
         'res': [
-            os.path.join(sourcePath, 'assets'),
+            os.path.join(sourcePath, 'assets'),  # 编译后的资源目录
             os.path.join(sourcePath, 'res'),
             os.path.join(sourcePath, 'src', 'assets')
         ]
@@ -242,12 +252,25 @@ def detectProjectVersion(sourcePath, versionHint):
     def findExistingPath(pathArray):
         """查找存在的路径，支持通配符模式"""
         for pattern in pathArray:
+            # 先尝试直接检查路径是否存在
+            if os.path.exists(pattern):
+                return pattern
             # 使用glob查找匹配的文件
             matches = glob.glob(pattern)
             if matches:
                 # 返回第一个匹配的文件
                 return matches[0]
         return None
+    
+    def findAllMatchingFiles(pathArray):
+        """查找所有匹配的文件，支持通配符模式"""
+        all_matches = []
+        for pattern in pathArray:
+            # 使用glob查找匹配的文件
+            matches = glob.glob(pattern)
+            if matches:
+                all_matches.extend(matches)
+        return all_matches
     
     # 特殊处理2.4.15版本提示
     if versionHint == '2.4.15' or versionHint == '2.4.x':
@@ -327,9 +350,24 @@ def detectProjectVersion(sourcePath, versionHint):
     # 再尝试2.4.x路径
     settings24 = findExistingPath(paths24x['settings'])
     project24 = findExistingPath(paths24x['project'])
+    
+    # 特殊处理资源目录，确保能找到编译后的资源
     res24 = findExistingPath(paths24x['res'])
     
-    if settings24 and res24:
+    # 如果没找到，直接检查assets目录
+    if not res24:
+        assets_path = os.path.join(sourcePath, 'assets')
+        if os.path.exists(assets_path):
+            res24 = assets_path
+            logger().info(f'使用assets目录作为资源目录: {res24}')
+        else:
+            # 检查res目录
+            res_path = os.path.join(sourcePath, 'res')
+            if os.path.exists(res_path):
+                res24 = res_path
+                logger().info(f'使用res目录作为资源目录: {res24}')
+    
+    if settings24:
         # 对于2.4.x版本，project.js可能不存在
         if not project24:
             project24 = settings24
@@ -340,7 +378,7 @@ def detectProjectVersion(sourcePath, versionHint):
             'version': '2.4.x',
             'settingsPath': settings24,
             'projectPath': project24,
-            'resPath': res24
+            'resPath': res24 or sourcePath
         }
     
     # 如果都找不到，抛出详细错误信息
@@ -403,9 +441,19 @@ def parseSettings(settings):
             # 查找CCSettings赋值行
             if 'window._CCSettings' in settings_content:
                 # 提取整个赋值语句
-                settings_line = settings_content.strip()
-                # 移除window._CCSettings = 和最后的分号
-                settings_json_str = settings_line.replace('window._CCSettings=', '').rstrip(';')
+                # 查找window._CCSettings的完整赋值
+                ccsettings_match = re.search(r'window\._CCSettings\s*=\s*({[^;]+});', settings_content, re.DOTALL)
+                if ccsettings_match:
+                    settings_json_str = ccsettings_match.group(1)
+                else:
+                    # 如果没有分号，尝试匹配到行尾
+                    ccsettings_match = re.search(r'window\._CCSettings\s*=\s*({[^;]+})', settings_content, re.DOTALL)
+                    if ccsettings_match:
+                        settings_json_str = ccsettings_match.group(1)
+                    else:
+                        # 保留原逻辑作为备选
+                        settings_line = settings_content.strip()
+                        settings_json_str = settings_line.replace('window._CCSettings=', '').rstrip(';')
                 
                 # 使用一个简单的JavaScript解析器来处理
                 # 替换单引号为双引号
@@ -417,8 +465,20 @@ def parseSettings(settings):
                 settings_data = json.loads(settings_json_str)
                 global_settings = {'CCSettings': settings_data}
             elif 'window.CCSettings' in settings_content:
-                settings_line = settings_content.strip()
-                settings_json_str = settings_line.replace('window.CCSettings=', '').rstrip(';')
+                # 提取整个赋值语句
+                # 查找window.CCSettings的完整赋值
+                ccsettings_match = re.search(r'window\.CCSettings\s*=\s*({[^;]+});', settings_content, re.DOTALL)
+                if ccsettings_match:
+                    settings_json_str = ccsettings_match.group(1)
+                else:
+                    # 如果没有分号，尝试匹配到行尾
+                    ccsettings_match = re.search(r'window\.CCSettings\s*=\s*({[^;]+})', settings_content, re.DOTALL)
+                    if ccsettings_match:
+                        settings_json_str = ccsettings_match.group(1)
+                    else:
+                        # 保留原逻辑作为备选
+                        settings_line = settings_content.strip()
+                        settings_json_str = settings_line.replace('window.CCSettings=', '').rstrip(';')
                 settings_json_str = settings_json_str.replace("'", '"')
                 settings_json_str = re.sub(r",\s*([}\]])", r'\1', settings_json_str)
                 settings_data = json.loads(settings_json_str)

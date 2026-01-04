@@ -43,27 +43,31 @@ class ResourceProcessor:
             ]
         }
     
-    def processResources(self):
+    def processResources(self, paths=None):
         """
         处理资源
+        
+        Args:
+            paths (dict): 路径字典，包含source、res、output等路径
         """
         from src.utils.logger import logger
-        from src.core.reverseEngine import global_paths, global_settings
         import os
         
         logger().info("开始处理资源...")
         
-        # 获取资源目录路径
-        res_path = global_paths.get('res', '')
-        source_path = global_paths.get('source', '')
+        if not paths:
+            logger().warn("未提供路径信息，无法处理资源")
+            return
         
-        # 尝试多种资源目录位置
+        logger().debug(f"资源处理: paths={paths}")
+        
+        # 尝试多种资源目录位置，包括编译后的资源结构
         asset_paths = [
-            res_path,  # 默认检测到的资源路径
-            os.path.join(source_path, 'assets'),  # 直接在项目根目录下的assets
-            os.path.join(source_path, 'res'),  # 直接在项目根目录下的res
-            os.path.join(source_path, 'src', 'assets'),  # src目录下的assets
-            os.path.join(source_path, 'src', 'res')  # src目录下的res
+            paths.get('res', ''),  # 默认检测到的资源路径
+            os.path.join(paths.get('source', ''), 'assets'),  # 直接在项目根目录下的assets
+            os.path.join(paths.get('source', ''), 'res'),  # 直接在项目根目录下的res
+            os.path.join(paths.get('source', ''), 'src', 'assets'),  # src目录下的assets
+            os.path.join(paths.get('source', ''), 'src', 'res')  # src目录下的res
         ]
         
         # 找到所有存在的资源目录
@@ -87,11 +91,11 @@ class ResourceProcessor:
                     rel_path = os.path.relpath(file_path, valid_asset_path)
                     
                     # 处理不同类型的资源
-                    self._processResource(file_path, rel_path, valid_asset_path)
+                    self._processResource(file_path, rel_path, valid_asset_path, paths)
         
         logger().info(f"资源处理完成，共处理 {len(self.processed_resources)} 个资源")
     
-    def _processResource(self, file_path, rel_path, asset_root):
+    def _processResource(self, file_path, rel_path, asset_root, paths=None):
         """
         处理单个资源
         
@@ -99,9 +103,9 @@ class ResourceProcessor:
             file_path (str): 资源文件路径
             rel_path (str): 资源相对路径
             asset_root (str): 资源根目录
+            paths (dict): 路径字典，包含output等路径
         """
         from src.utils.logger import logger
-        from src.core.reverseEngine import global_paths
         from src.utils.fileManager import fileManager
         
         # 检测文件类型
@@ -115,7 +119,7 @@ class ResourceProcessor:
         logger().debug(f"处理资源: {rel_path}, 类型: {mime_type}, 类别: {resource_category}")
         
         # 资源输出路径
-        output_path = os.path.join(global_paths.get('output', ''), 'assets', rel_path)
+        output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
         
         try:
             # 根据资源类型进行专门处理
