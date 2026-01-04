@@ -105,6 +105,10 @@ class ResourceProcessor:
                     paths_dict = config_content.get('paths', {})
                     uuids = config_content.get('uuids', [])
                     
+                    # 获取config.json文件所在的相对目录（相对于valid_asset_path）
+                    # 这个目录将作为资源路径的前缀，确保资源保持正确的目录结构
+                    config_dir = os.path.dirname(os.path.relpath(config_file_path, valid_asset_path))
+                    
                     # 查找Prefab类型索引
                     prefab_type_index = None
                     for i, type_name in enumerate(types):
@@ -114,15 +118,26 @@ class ResourceProcessor:
                     
                     if prefab_type_index is not None:
                         logger().info(f"找到Prefab类型索引: {prefab_type_index}")
+                        logger().info(f"Config文件目录: {config_dir}")
                         
                         # 收集所有Prefab资源
                         for path_id, path_info in paths_dict.items():
                             if isinstance(path_info, list) and len(path_info) > 0 and path_info[1] == prefab_type_index:
-                                prefab_path = path_info[0]
+                                # 获取资源的相对路径
+                                resource_rel_path = path_info[0]
+                                
+                                # 构建完整的资源路径，将config目录作为前缀
+                                if config_dir != '.' and config_dir != '':
+                                    prefab_path = os.path.join(config_dir, resource_rel_path)
+                                else:
+                                    prefab_path = resource_rel_path
+                                
                                 prefab_info[prefab_path] = {
                                     'path_id': path_id,
                                     'uuid': uuids[int(path_id)] if len(uuids) > int(path_id) else '',
-                                    'path': prefab_path
+                                    'path': prefab_path,
+                                    'config_dir': config_dir,
+                                    'original_path': resource_rel_path
                                 }
                             
                 except Exception as e:
