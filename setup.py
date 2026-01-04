@@ -34,7 +34,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "cc-reverse=reverse.main:cli",
+            "cc-reverse=cc_reverse.main:cli",
         ],
     },
 )

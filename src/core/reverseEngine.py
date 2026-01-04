@@ -6,6 +6,7 @@ Cocos Creator 逆向工程核心引擎
 import os
 import sys
 import shutil
+import json
 from src.utils.fileManager import fileManager
 from src.utils.logger import logger
 from src.config.configLoader import loadConfig
@@ -104,10 +105,19 @@ def reverseProject(options):
         from src.core.resourceProcessor import resourceProcessor
         from src.core.projectGenerator import projectGenerator
         
+        # 先创建项目结构
+        logger().info("创建项目目录结构...")
+        projectGenerator._createProjectStructure(global_paths)
+        logger().success("项目目录结构创建完成")
+        
         # 分析主项目文件
         logger().info('开始分析主项目文件...')
         codeAnalyzer.analyze(code)
-        logger().success(f"主项目文件分析完成，检测到 {len(codeAnalyzer.analyzed_data.get('components', []))} 个组件")
+        components_count = len(codeAnalyzer.analyzed_data.get('components', []))
+        logger().success(f"主项目文件分析完成，检测到 {components_count} 个组件")
+        
+        if components_count > 0:
+            logger().info(f"检测到的组件: {[c.get('name') for c in codeAnalyzer.analyzed_data.get('components', [])]}")
         
         # 分析settings中列出的所有JavaScript文件
         js_list = global_settings.get('CCSettings', {}).get('jsList', [])
@@ -150,7 +160,16 @@ def reverseProject(options):
         if codeAnalyzer.analyzed_data.get('components', []):
             logger().info(f'生成 {len(codeAnalyzer.analyzed_data.get("components", []))} 个脚本文件...')
             codeAnalyzer.generateScripts(global_paths.get('output', ''))
+            # 验证脚本文件是否生成
+            scripts_dir = os.path.join(global_paths.get('output', ''), 'assets', 'scripts')
+            if os.path.exists(scripts_dir):
+                scripts = [f for f in os.listdir(scripts_dir) if f.endswith('.js')]
+                logger().info(f'脚本目录已创建，包含 {len(scripts)} 个脚本文件')
+                if scripts:
+                    logger().info(f'脚本文件列表: {scripts[:10]}')
             logger().success('脚本文件生成完成')
+        else:
+            logger().warn('未检测到任何组件，跳过脚本生成')
         
         # 生成项目文件
         logger().info('生成项目配置文件...')

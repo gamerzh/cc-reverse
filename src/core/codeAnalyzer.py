@@ -42,6 +42,13 @@ class CodeAnalyzer:
             self._traverseAST(ast.body, file_path)
             
             scripts_count = len(self.analyzed_data["components"])
+            
+            # 如果esprima没有检测到任何组件，使用正则表达式回退
+            if scripts_count == 0:
+                logger().warn("esprima未检测到组件，使用正则表达式回退分析")
+                self._fallbackAnalysis(code, file_path)
+                scripts_count = len(self.analyzed_data["components"])
+            
             logger().info(f"代码分析完成，检测到 {scripts_count} 个cc.Class定义")
             
             # 简单的代码特征提取
@@ -63,30 +70,77 @@ class CodeAnalyzer:
         from src.utils.logger import logger
         import re
         
-        # 使用正则表达式查找cc.Class定义
-        class_pattern = r'cc\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)'
-        class_matches = re.findall(class_pattern, code)
+        logger().debug(f"使用正则表达式分析代码... 文件: {file_path}")
         
-        scripts_count = len(class_matches)
+        # 支持多种Cocos Creator代码模式
+        patterns = [
+            # 标准cc.Class定义
+            r'cc\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)',
+            # window.cc.Class定义
+            r'window\.cc\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)',
+            # 压缩后的代码模式 (function(a,b){return a.Class({...})})
+            r'\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)',
+        ]
+        
+        class_matches = []
+        for pattern in patterns:
+            matches = re.findall(pattern, code)
+            if matches:
+                class_matches.extend(matches)
+                logger().debug(f"模式 {pattern[:30]}... 匹配到 {len(matches)} 个结果")
+        
+        # 去重
+        seen = set()
+        unique_matches = []
+        for match in class_matches:
+            if match not in seen:
+                seen.add(match)
+                unique_matches.append(match)
+        
+        scripts_count = len(unique_matches)
         logger().warn(f"使用正则表达式匹配，检测到 {scripts_count} 个cc.Class定义")
         
-        for class_match in class_matches:
+        for class_match in unique_matches:
             # 尝试提取类名
-            name_pattern = r'name\s*:\s*[\"\']([^\"\']+)[\"\']'
-            name_match = re.search(name_pattern, class_match)
+            name_patterns = [
+                r'name\s*:\s*["\']([^"\']+)["\']',
+                r'name\s*:\s*([^\s,\}]+)'
+            ]
+            name_match = None
+            for pattern in name_patterns:
+                name_match = re.search(pattern, class_match)
+                if name_match:
+                    break
             
             # 尝试提取继承关系
-            extends_pattern = r'extends\s*:\s*([^,;\n]+)'
-            extends_match = re.search(extends_pattern, class_match)
+            extends_patterns = [
+                r'extends\s*:\s*["\']([^"\']+)["\']',
+                r'extends\s*:\s*([^\s,\}]+)'
+            ]
+            extends_match = None
+            for pattern in extends_patterns:
+                extends_match = re.search(pattern, class_match)
+                if extends_match:
+                    break
+            
+            class_name = name_match.group(1) if name_match else None
+            if class_name:
+                class_name = class_name.strip()
+                # 跳过非类名（如数字、特殊字符）
+                if not class_name or class_name[0].isdigit():
+                    class_name = f"Unknown_{len(self.analyzed_data['components'])}"
+            else:
+                class_name = f"Unknown_{len(self.analyzed_data['components'])}"
             
             class_info = {
-                "name": name_match.group(1) if name_match else "Unknown",
+                "name": class_name,
                 "extends": extends_match.group(1).strip() if extends_match else "cc.Component",
                 "properties": {},
                 "methods": {}
             }
             
             self.analyzed_data["components"].append(class_info)
+            logger().info(f"提取到组件: {class_info['name']} 继承自 {class_info['extends']}")
         
         self.analyzed_data["scripts_count"] = scripts_count
         self.analyzed_data["code_length"] = len(code)
