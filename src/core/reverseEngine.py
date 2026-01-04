@@ -34,6 +34,7 @@ def reverseProject(options):
     source_path = options.get('sourcePath')
     output_path = options.get('outputPath')
     verbose = options.get('verbose', False)
+    silent = options.get('silent', False)
     version_hint = options.get('versionHint', '')
     
     # 全局配置初始化
@@ -41,33 +42,49 @@ def reverseProject(options):
     global_config = loadConfig()
     global_verbose = verbose
     
-    # 检测Cocos Creator版本并设置相应的文件路径
-    project_info = detectProjectVersion(source_path, version_hint)
-    global_cocosVersion = project_info['version']
+    # 配置日志
+    log_level = "debug" if verbose else "info"
+    if silent:
+        log_level = "error"
+    logger().set_level(log_level)
+    logger().set_verbose(verbose)
     
-    # 检查文件是否存在
-    validatePaths(project_info['resPath'], project_info['settingsPath'], project_info['projectPath'])
-    
-    # 创建临时目录和输出目录
-    temp_path = os.path.join(output_path, 'temp')
-    ast_path = os.path.join(temp_path, 'ast')
-    
-    # 创建目录
-    os.makedirs(temp_path, exist_ok=True)
-    os.makedirs(ast_path, exist_ok=True)
-    os.makedirs(output_path, exist_ok=True)
-    
-    # 保存全局路径信息
-    global_paths = {
-        'source': source_path,
-        'output': output_path,
-        'res': project_info['resPath'],
-        'temp': temp_path,
-        'ast': ast_path
-    }
+    logger().info(f"开始处理项目: {source_path}", output=output_path)
+    logger().info(f"使用Cocos Creator版本提示: {version_hint}")
     
     try:
+        # 检测Cocos Creator版本并设置相应的文件路径
+        logger().info("检测Cocos Creator版本...")
+        project_info = detectProjectVersion(source_path, version_hint)
+        global_cocosVersion = project_info['version']
+        logger().success(f"成功检测到Cocos Creator版本: {global_cocosVersion}")
+        
+        # 检查文件是否存在
+        logger().info("验证项目文件路径...")
+        validatePaths(project_info['resPath'], project_info['settingsPath'], project_info['projectPath'])
+        logger().success("项目文件路径验证通过")
+        
+        # 创建临时目录和输出目录
+        temp_path = os.path.join(output_path, 'temp')
+        ast_path = os.path.join(temp_path, 'ast')
+        
+        # 创建目录
+        logger().info(f"创建工作目录: {output_path}")
+        os.makedirs(temp_path, exist_ok=True)
+        os.makedirs(ast_path, exist_ok=True)
+        os.makedirs(output_path, exist_ok=True)
+        
+        # 保存全局路径信息
+        global_paths = {
+            'source': source_path,
+            'output': output_path,
+            'res': project_info['resPath'],
+            'temp': temp_path,
+            'ast': ast_path
+        }
+        
         # 读取项目文件
+        logger().info("读取项目配置文件...")
         with open(project_info['settingsPath'], 'rb') as f:
             settings = f.read()
         
@@ -75,12 +92,12 @@ def reverseProject(options):
             project = f.read()
         
         code = project.decode('utf-8')
+        logger().success("成功读取项目配置文件")
         
         # 解析设置
+        logger().info("解析项目设置...")
         parseSettings(settings)
-        
-        # 开始处理
-        logger().info('开始分析代码...')
+        logger().success("项目设置解析完成")
         
         # 导入需要在全局变量设置后使用的模块
         from src.core.codeAnalyzer import codeAnalyzer
@@ -88,7 +105,9 @@ def reverseProject(options):
         from src.core.projectGenerator import projectGenerator
         
         # 分析主项目文件
+        logger().info('开始分析主项目文件...')
         codeAnalyzer.analyze(code)
+        logger().success(f"主项目文件分析完成，检测到 {len(codeAnalyzer.analyzed_data.get('components', []))} 个组件")
         
         # 分析settings中列出的所有JavaScript文件
         js_list = global_settings.get('CCSettings', {}).get('jsList', [])
@@ -96,6 +115,7 @@ def reverseProject(options):
             logger().info(f'开始分析 {len(js_list)} 个额外脚本文件...')
             source_path = global_paths.get('source', '')
             js_files = []
+            missing_files = []
             
             for js_file in js_list:
                 # 构建完整的文件路径
@@ -108,32 +128,57 @@ def reverseProject(options):
                     if os.path.exists(js_file_path_src):
                         js_files.append(js_file_path_src)
                     else:
-                        logger().warn(f'未找到脚本文件: {js_file}')
+                        missing_files.append(js_file)
+            
+            # 报告缺失的文件
+            if missing_files:
+                logger().warn(f'未找到 {len(missing_files)} 个脚本文件: {missing_files[:5]}{"..." if len(missing_files) > 5 else ""}')
             
             # 分析所有找到的脚本文件
             if js_files:
+                logger().info(f'分析找到的 {len(js_files)} 个脚本文件...')
                 codeAnalyzer.analyzeMultipleFiles(js_files)
+                logger().success(f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
         
-        logger().info('开始处理资源...')
         # 处理资源
+        logger().info('开始处理资源...')
         resourceProcessor.processResources()
+        resource_stats = resourceProcessor.getResourceStats()
+        logger().success(f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
         
         # 生成脚本文件
         if codeAnalyzer.analyzed_data.get('components', []):
-            logger().info('生成脚本文件...')
+            logger().info(f'生成 {len(codeAnalyzer.analyzed_data.get("components", []))} 个脚本文件...')
             codeAnalyzer.generateScripts(global_paths.get('output', ''))
+            logger().success('脚本文件生成完成')
         
-        logger().info('生成项目文件...')
-        # 生成项目，传入全局路径
+        # 生成项目文件
+        logger().info('生成项目配置文件...')
         projectGenerator.generateProject(global_paths)
+        logger().success(f'项目生成完成，共生成 {len(projectGenerator.getGeneratedFiles())} 个文件')
         
         # 清理临时文件
         if not verbose:
+            logger().info('清理临时文件...')
             fileManager.cleanDirectory(temp_path)
+            logger().success('临时文件清理完成')
         
+        logger().success(f'逆向工程完成！项目已生成到: {output_path}')
         return True
+    except FileNotFoundError as e:
+        logger().exception('项目文件不存在', e)
+        raise
+    except PermissionError as e:
+        logger().exception('没有权限访问项目文件', e)
+        raise
+    except UnicodeDecodeError as e:
+        logger().exception('项目文件编码错误', e)
+        raise
+    except json.JSONDecodeError as e:
+        logger().exception('项目配置文件解析错误', e)
+        raise
     except Exception as e:
-        logger().error(f'处理项目文件时出错: {e}')
+        logger().exception('处理项目文件时出错', e)
         raise
 
 def detectProjectVersion(sourcePath, versionHint):

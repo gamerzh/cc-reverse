@@ -15,18 +15,20 @@ class CodeAnalyzer:
             "scripts": [],
             "resources": [],
             "components": [],
-            "nodes": []
+            "nodes": [],
+            "dependencies": {}
         }
     
-    def analyze(self, code):
+    def analyze(self, code, file_path=""):
         """
         分析代码
         
         Args:
             code (str): JavaScript代码
+            file_path (str): 可选的文件路径
         """
         from src.utils.logger import logger
-        logger().debug("开始分析代码...")
+        logger().debug(f"开始分析代码... 文件: {file_path}")
         
         try:
             # 使用esprima解析JavaScript代码
@@ -37,7 +39,7 @@ class CodeAnalyzer:
             })
             
             # 遍历AST提取cc.Class定义
-            self._traverseAST(ast.body)
+            self._traverseAST(ast.body, file_path)
             
             scripts_count = len(self.analyzed_data["components"])
             logger().info(f"代码分析完成，检测到 {scripts_count} 个cc.Class定义")
@@ -47,18 +49,55 @@ class CodeAnalyzer:
             self.analyzed_data["code_length"] = len(code)
         except Exception as e:
             logger().error(f"代码解析失败: {e}")
-            # 回退到简单的字符串匹配
-            scripts_count = code.count("cc.Class")
-            logger().warn(f"使用简单字符串匹配，检测到 {scripts_count} 个cc.Class定义")
-            self.analyzed_data["scripts_count"] = scripts_count
-            self.analyzed_data["code_length"] = len(code)
+            # 回退到更健壮的字符串匹配
+            self._fallbackAnalysis(code, file_path)
     
-    def _traverseAST(self, nodes):
+    def _fallbackAnalysis(self, code, file_path=""):
+        """
+        回退分析方案，使用正则表达式提取cc.Class定义
+        
+        Args:
+            code (str): JavaScript代码
+            file_path (str): 可选的文件路径
+        """
+        from src.utils.logger import logger
+        import re
+        
+        # 使用正则表达式查找cc.Class定义
+        class_pattern = r'cc\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)'
+        class_matches = re.findall(class_pattern, code)
+        
+        scripts_count = len(class_matches)
+        logger().warn(f"使用正则表达式匹配，检测到 {scripts_count} 个cc.Class定义")
+        
+        for class_match in class_matches:
+            # 尝试提取类名
+            name_pattern = r'name\s*:\s*[\"\']([^\"\']+)[\"\']'
+            name_match = re.search(name_pattern, class_match)
+            
+            # 尝试提取继承关系
+            extends_pattern = r'extends\s*:\s*([^,;\n]+)'
+            extends_match = re.search(extends_pattern, class_match)
+            
+            class_info = {
+                "name": name_match.group(1) if name_match else "Unknown",
+                "extends": extends_match.group(1).strip() if extends_match else "cc.Component",
+                "properties": {},
+                "methods": {}
+            }
+            
+            self.analyzed_data["components"].append(class_info)
+        
+        self.analyzed_data["scripts_count"] = scripts_count
+        self.analyzed_data["code_length"] = len(code)
+    
+    def _traverseAST(self, nodes, file_path=""):
         """
         遍历AST节点
         
         Args:
             nodes (list): AST节点列表
+            file_path (str): 可选的文件路径
         """
         from src.utils.logger import logger
         
@@ -79,19 +118,20 @@ class CodeAnalyzer:
                             args = expr.get("arguments", [])
                             if args:
                                 class_data = args[0]
-                                self._extractClassInfo(class_data)
+                                self._extractClassInfo(class_data, file_path)
                 
                 # 递归遍历子节点
                 for key, value in node.items():
                     if key != "type" and isinstance(value, (dict, list)):
-                        self._traverseAST([value] if isinstance(value, dict) else value)
+                        self._traverseAST([value] if isinstance(value, dict) else value, file_path)
     
-    def _extractClassInfo(self, class_data):
+    def _extractClassInfo(self, class_data, file_path=""):
         """
         提取类信息
         
         Args:
             class_data (dict): 类数据AST节点
+            file_path (str): 可选的文件路径
         """
         from src.utils.logger import logger
         
@@ -99,7 +139,11 @@ class CodeAnalyzer:
             class_info = {
                 "name": "",
                 "extends": "",
-                "properties": {}
+                "properties": {},
+                "methods": {},
+                "statics": {},
+                "mixins": [],
+                "file_path": file_path
             }
             
             # 提取类的属性
@@ -131,12 +175,66 @@ class CodeAnalyzer:
                             extends_path.insert(0, curr.get("name"))
                             break
                     class_info["extends"] = ".".join(extends_path)
-                # 其他属性
+                # 处理属性
+                elif key_name == "properties" and prop_value.get("type") == "ObjectExpression":
+                    # 提取属性定义
+                    for prop_def in prop_value.get("properties", []):
+                        prop_def_key = prop_def.get("key", {})
+                        prop_def_value = prop_def.get("value", {})
+                        
+                        if prop_def_key.get("type") == "Identifier":
+                            prop_name = prop_def_key.get("name")
+                            class_info["properties"][prop_name] = self._extractPropertyValue(prop_def_value)
+                # 处理静态属性
+                elif key_name == "statics" and prop_value.get("type") == "ObjectExpression":
+                    # 提取静态属性定义
+                    for static_def in prop_value.get("properties", []):
+                        static_def_key = static_def.get("key", {})
+                        static_def_value = static_def.get("value", {})
+                        
+                        if static_def_key.get("type") == "Identifier":
+                            static_name = static_def_key.get("name")
+                            class_info["statics"][static_name] = self._extractPropertyValue(static_def_value)
+                # 处理混入
+                elif key_name == "mixins" and prop_value.get("type") == "ArrayExpression":
+                    for mixin in prop_value.get("elements", []):
+                        if mixin and mixin.get("type") == "Identifier":
+                            class_info["mixins"].append(mixin.get("name"))
+                # 处理方法
                 else:
-                    class_info["properties"][key_name] = self._extractPropertyValue(prop_value)
+                    # 检查是否是方法定义
+                    if prop_value.get("type") in ["FunctionExpression", "ArrowFunctionExpression"]:
+                        class_info["methods"][key_name] = self._extractMethodInfo(prop_value)
+                    else:
+                        # 其他顶层属性
+                        class_info[key_name] = self._extractPropertyValue(prop_value)
             
-            logger().info(f"找到cc.Class定义: {class_info['name']} 继承自 {class_info['extends']}")
-            self.analyzed_data["components"].append(class_info)
+            if class_info["name"]:
+                logger().info(f"找到cc.Class定义: {class_info['name']} 继承自 {class_info['extends']}")
+                self.analyzed_data["components"].append(class_info)
+    
+    def _extractMethodInfo(self, method_node):
+        """
+        提取方法信息
+        
+        Args:
+            method_node (dict): 方法的AST节点
+        
+        Returns:
+            dict: 方法信息
+        """
+        method_info = {
+            "params": [],
+            "is_arrow": method_node.get("type") == "ArrowFunctionExpression"
+        }
+        
+        # 提取参数
+        if method_node.get("params"):
+            for param in method_node.get("params"):
+                if param.get("type") == "Identifier":
+                    method_info["params"].append(param.get("name"))
+        
+        return method_info
     
     def _extractPropertyValue(self, value_node):
         """
@@ -157,8 +255,13 @@ class CodeAnalyzer:
             for prop in value_node.get("properties", []):
                 prop_key = prop.get("key")
                 prop_val = prop.get("value")
-                if prop_key.get("type") == "Identifier":
-                    key_name = prop_key.get("name")
+                if prop_key:
+                    if prop_key.get("type") == "Identifier":
+                        key_name = prop_key.get("name")
+                    elif prop_key.get("type") == "Literal":
+                        key_name = prop_key.get("value")
+                    else:
+                        continue
                     obj[key_name] = self._extractPropertyValue(prop_val)
             return obj
         elif value_type == "ArrayExpression":
@@ -167,7 +270,7 @@ class CodeAnalyzer:
                 if elem:
                     arr.append(self._extractPropertyValue(elem))
             return arr
-        elif value_type == "FunctionExpression" or value_type == "ArrowFunctionExpression":
+        elif value_type in ["FunctionExpression", "ArrowFunctionExpression"]:
             return "function"
         elif value_type == "MemberExpression":
             # 处理 cc.Sprite 这样的成员表达式
@@ -183,6 +286,15 @@ class CodeAnalyzer:
             return ".".join(path)
         elif value_type == "Identifier":
             return value_node.get("name")
+        elif value_type == "UnaryExpression":
+            # 处理布尔值和数字的一元表达式
+            operator = value_node.get("operator")
+            argument = self._extractPropertyValue(value_node.get("argument"))
+            if operator == "!":
+                return not argument
+            elif operator == "-":
+                return -argument
+            return f"{operator}{argument}"
         else:
             return f"<{value_type}>"
     
@@ -200,7 +312,7 @@ class CodeAnalyzer:
             try:
                 logger().info(f"分析文件: {file_path}")
                 code = fileManager.readFile(file_path)
-                self.analyze(code)
+                self.analyze(code, file_path)
             except Exception as e:
                 logger().error(f"分析文件 {file_path} 失败: {e}")
     
@@ -242,37 +354,66 @@ class CodeAnalyzer:
         name = component.get("name", "UnknownComponent")
         extends = component.get("extends", "cc.Component")
         properties = component.get("properties", {})
+        methods = component.get("methods", {})
+        statics = component.get("statics", {})
+        mixins = component.get("mixins", [])
         
         # 生成脚本内容
         content = f"cc.Class({{\n"
         content += f"    name: '{name}',\n"
         content += f"    extends: {extends},\n"
         
+        # 添加混入
+        if mixins:
+            content += f"    mixins: [{', '.join(mixins)}],\n"
+        
+        # 添加静态属性
+        if statics:
+            content += "    statics: {\n"
+            for stat_name, stat_value in statics.items():
+                content += f"        {stat_name}: {self._formatValue(stat_value)},\n"
+            content = content.rstrip(",\n") + "\n    },\n"
+        
         # 添加属性
         if properties:
             content += "    properties: {\n"
             for prop_name, prop_value in properties.items():
-                if isinstance(prop_value, dict):
-                    content += f"        {prop_name}: {self._formatValue(prop_value)},\n"
-                elif isinstance(prop_value, list):
-                    content += f"        {prop_name}: {self._formatValue(prop_value)},\n"
-                else:
-                    content += f"        {prop_name}: {self._formatValue(prop_value)},\n"
-            content += "    },\n"
+                content += f"        {prop_name}: {self._formatValue(prop_value)},\n"
+            content = content.rstrip(",\n") + "\n    },\n"
         
-        # 添加默认的生命周期方法
-        content += "    \n"
-        content += "    onLoad () {\n"
-        content += "        // 组件加载时调用\n"
-        content += "    },\n"
-        content += "    \n"
-        content += "    start () {\n"
-        content += "        // 组件开始时调用\n"
-        content += "    },\n"
-        content += "    \n"
-        content += "    update (dt) {\n"
-        content += "        // 组件更新时调用\n"
-        content += "    }\n"
+        # 添加其他顶层属性
+        other_props = [key for key in component.keys() if key not in ["name", "extends", "properties", "methods", "statics", "mixins", "file_path"]]
+        if other_props:
+            for prop_key in other_props:
+                prop_value = component[prop_key]
+                if prop_value is not None:
+                    content += f"    {prop_key}: {self._formatValue(prop_value)},\n"
+        
+        # 添加方法
+        if methods:
+            for method_name, method_info in methods.items():
+                params = ", ".join(method_info["params"])
+                content += f"    {method_name} ({params}) {{\n"
+                content += f"        // 自动生成的方法\n"
+                content += f"    }},\n"
+        
+        # 添加默认的生命周期方法（如果没有定义）
+        lifecycle_methods = ["onLoad", "start", "update", "lateUpdate", "onEnable", "onDisable", "onDestroy"]
+        for lifecycle_method in lifecycle_methods:
+            if lifecycle_method not in methods:
+                if lifecycle_method == "update":
+                    content += f"    {lifecycle_method} (dt) {{\n"
+                    content += f"        // 组件更新时调用\n"
+                    content += f"    }},\n"
+                else:
+                    content += f"    {lifecycle_method} () {{\n"
+                    content += f"        // {lifecycle_method} 生命周期方法\n"
+                    content += f"    }},\n"
+        
+        # 移除最后一个逗号
+        if content.endswith(",\n"):
+            content = content[:-2] + "\n"
+        
         content += "}\n);"
         
         return content
@@ -288,13 +429,25 @@ class CodeAnalyzer:
             str: 格式化后的字符串
         """
         if isinstance(value, str):
-            return f"'{value}'"
+            # 转义特殊字符
+            escaped_value = value.replace("'", "\\'")
+            return f"'{escaped_value}'"
         elif isinstance(value, dict):
-            return "{" + ", ".join([f"{k}: {self._formatValue(v)}" for k, v in value.items()]) + "}"
+            # 确保属性值正确格式化
+            props = []
+            for k, v in value.items():
+                # 处理特殊属性，如 default, type, visible 等
+                if k == "type" and isinstance(v, str) and "." in v:
+                    props.append(f"{k}: {v}")
+                else:
+                    props.append(f"{k}: {self._formatValue(v)}")
+            return "{" + ", ".join(props) + "}"
         elif isinstance(value, list):
             return "[" + ", ".join([self._formatValue(v) for v in value]) + "]"
         elif isinstance(value, bool):
             return str(value).lower()
+        elif isinstance(value, type(None)):
+            return "null"
         else:
             return str(value)
     

@@ -1,0 +1,28 @@
+{
+  "output": {
+    "createMeta": true,
+    "prettify": true,
+    "includeComments": true
+  },
+  "codeGen": {
+    "language": "javascript",
+    "moduleType": "commonjs",
+    "indentSize": 2,
+    "indent": "space"
+  },
+  "assets": {
+    "extractTextures": true,
+    "extractAudio": true,
+    "extractAnimations": true,
+    "extractFonts": true,
+    "optimizeSprites": false
+  },
+  "project": {
+    "autoDetectVersion": true,
+    "defaultVersion": "2.4.x"
+  },
+  "logging": {
+    "level": "info",
+    "showProgress": true
+  }
+}
