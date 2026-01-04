@@ -187,7 +187,7 @@ class CodeAnalyzer:
             class_data (dict): 类数据AST节点
             file_path (str): 可选的文件路径
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         
         if class_data.get("type") == "ObjectExpression":
             class_info = {
@@ -377,7 +377,7 @@ class CodeAnalyzer:
         Args:
             output_path (str): 输出目录路径
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         from utils.fileManager import fileManager
         
         logger().info(f"生成脚本文件到: {output_path}")

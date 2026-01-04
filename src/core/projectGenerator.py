@@ -225,7 +225,7 @@ class ProjectGenerator:
         Args:
             paths (dict): 路径字典
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         from utils.fileManager import fileManager
         
         logger().info("生成meta文件...")
@@ -258,7 +258,7 @@ class ProjectGenerator:
             dir_path (str): 目录路径
             meta_path (str): meta文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         
         # 生成目录meta文件内容
         meta_content = {
@@ -280,7 +280,7 @@ class ProjectGenerator:
             file_path (str): 资源文件路径
             meta_path (str): meta文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         import uuid
         
         # 获取文件扩展名

@@ -13,6 +13,7 @@ class ResourceProcessor:
     def __init__(self):
         """初始化"""
         self.processed_resources = []
+        self.image_path_mappings = {}  # 图片资源路径映射，用于还原正确的图片路径
         self.resource_types = {
             'image': [
                 'image/jpeg', 'image/png', 'image/gif', 'image/bmp', 
@@ -53,6 +54,7 @@ class ResourceProcessor:
         from utils.logger import logger
         import os
         import json
+        import shutil
         
         logger().info("开始处理资源...")
         
@@ -85,6 +87,7 @@ class ResourceProcessor:
         # 查找并处理编译后的资源配置文件
         prefab_info = {}
         scene_info = {}
+        image_paths_to_create = []
         for valid_asset_path in valid_asset_paths:
             # 查找config.json文件（编译后的资源配置）
             config_files = []
@@ -166,9 +169,42 @@ class ResourceProcessor:
                                     'config_dir': config_dir,
                                     'original_path': resource_rel_path
                                 }
+                    
+                    # 收集所有图片资源的路径映射
+                    # 图片资源通常以textures/image/开头
+                    logger().info(f"开始收集图片资源路径映射，Config目录: {config_dir}")
+                    for path_id, path_info in paths_dict.items():
+                        if isinstance(path_info, list) and len(path_info) > 0:
+                            resource_rel_path = path_info[0]
+                            # 检查是否为图片资源路径
+                            if resource_rel_path.startswith('textures/image/'):
+                                # 构建完整的资源路径，将config目录作为前缀
+                                if config_dir != '.' and config_dir != '':
+                                    full_path = os.path.join(config_dir, resource_rel_path)
+                                else:
+                                    full_path = resource_rel_path
+                                
+                                # 保存图片资源路径映射
+                                self.image_path_mappings[path_id] = {
+                                    'original_path': resource_rel_path,
+                                    'full_path': full_path,
+                                    'config_dir': config_dir
+                                }
+                                logger().debug(f"收集图片资源映射: {path_id} -> {resource_rel_path}")
+                                
+                                # 添加到需要创建的图片路径列表
+                                image_paths_to_create.append({
+                                    'output_path': full_path + '.png',
+                                    'config_dir': config_dir,
+                                    'original_path': resource_rel_path
+                                })
+                                logger().debug(f"添加图片路径到创建列表: {full_path}.png")
                             
                 except Exception as e:
                     logger().error(f"处理资源配置文件 {config_file_path} 失败: {e}")
+        
+        # 2. 收集所有可用的图片文件
+        all_image_files = []
         
         # 处理每个资源目录
         for valid_asset_path in valid_asset_paths:
@@ -179,8 +215,45 @@ class ResourceProcessor:
                     # 计算相对于资源目录的路径
                     rel_path = os.path.relpath(file_path, valid_asset_path)
                     
+                    # 检测是否为图片文件
+                    file_ext = os.path.splitext(file)[1].lower()
+                    if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                        all_image_files.append((file_path, rel_path))
+                    
                     # 处理不同类型的资源
                     self._processResource(file_path, rel_path, valid_asset_path, paths)
+        
+        # 3. 为收集到的图片路径创建实际文件
+        logger().info(f"开始创建图片文件，共 {len(image_paths_to_create)} 个路径需要创建")
+        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
+        
+        # 遍历所有需要创建的图片路径
+        for i, image_info in enumerate(image_paths_to_create):
+            # 确保不超过可用图片数量
+            if i >= len(all_image_files):
+                logger().warn(f"图片路径数量超过可用图片文件数量，跳过剩余 {len(image_paths_to_create) - i} 个路径")
+                break
+            
+            # 获取一个图片文件
+            image_file_path, image_rel_path = all_image_files[i]
+            output_path = os.path.join(output_assets_path, image_info['output_path'])
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            # 复制图片文件到正确的位置
+            shutil.copy2(image_file_path, output_path)
+            logger().info(f"创建图片文件: {output_path}")
+            
+            # 添加到已处理资源列表
+            self.processed_resources.append({
+                'source': image_file_path,
+                'target': output_path,
+                'type': 'image/png',
+                'category': 'image',
+                'relative_path': image_info['output_path'],
+                'file_ext': '.png'
+            })
         
         # 处理Prefab资源，将编译后的JSON转换为.prefab格式
         if prefab_info:
@@ -226,13 +299,46 @@ class ResourceProcessor:
         logger().debug(f"处理资源: {rel_path}, 类型: {mime_type}, 类别: {resource_category}")
         
         # 资源输出路径 - 确保图片资源路径与原工程一致
-        # 原工程图片路径格式：assets/res/[模块名]/...，只对图片资源添加res前缀
+        output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
+        
         if resource_category == 'image':
-            # 图片资源使用res前缀
-            output_path = os.path.join(paths.get('output', ''), 'assets', 'res', rel_path)
-        else:
-            # 其他资源保持原有路径结构
-            output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
+            # 图片资源特殊处理，尝试还原正确路径
+            # 例如：将 C:/Workflow/xsh5/build/web-mobile/assets/hall/native/02/02261acb-2a71-45a9-9296-b5569c63b9b0.b3f8b.png
+            # 还原为 hall/textures/image/<category>/<filename>.png
+            
+            # 1. 提取模块名（如hall）
+            # 从rel_path中提取模块名，格式为：<module>/native/<subdir>/<filename>.png
+            path_parts = rel_path.split(os.sep)
+            if len(path_parts) >= 3 and path_parts[1] == 'native':
+                module_name = path_parts[0]
+                logger().debug(f"提取模块名：{module_name}")
+                
+                # 2. 在image_path_mappings中查找该模块下的图片路径
+                # 遍历所有映射，找到与模块相关的图片路径
+                for path_id, mapping in self.image_path_mappings.items():
+                    if mapping['config_dir'] == module_name and mapping['original_path'].startswith('textures/image/'):
+                        # 3. 生成正确的输出路径
+                        # 原路径格式：textures/image/<category>/<filename>
+                        # 期望输出：<module>/textures/image/<category>/<filename>.png
+                        original_path = mapping['original_path']
+                        new_rel_path = os.path.join(module_name, original_path) + '.png'
+                        output_path = os.path.join(paths.get('output', ''), 'assets', new_rel_path)
+                        logger().info(f"还原图片路径：{rel_path} -> {new_rel_path}")
+                        break
+                else:
+                    # 如果没有找到映射，尝试直接构建期望的路径结构
+                    # 提取文件名（不含扩展名和hash）
+                    base_name = os.path.splitext(os.path.basename(file_path))[0]
+                    uuid_part = base_name.split('.')[0]
+                    
+                    # 直接使用模块名+textures/image结构
+                    new_rel_path = os.path.join(module_name, 'textures', 'image', uuid_part + '.png')
+                    output_path = os.path.join(paths.get('output', ''), 'assets', new_rel_path)
+                    logger().info(f"直接生成图片路径：{rel_path} -> {new_rel_path}")
+            else:
+                # 非native目录下的图片，使用默认处理
+                output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
+                logger().debug(f"非native目录图片，使用默认路径：{output_path}")
         
         # 检查是否为编译后的资源配置文件，如果是则跳过，因为会在专门的逻辑中处理
         if rel_path.startswith('config.') and rel_path.endswith('.json'):
@@ -380,7 +486,7 @@ class ResourceProcessor:
             source_path (str): 源文件路径
             target_path (str): 目标文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         import json
         
         # 确保目录存在
@@ -429,7 +535,7 @@ class ResourceProcessor:
             source_path (str): 源文件路径
             target_path (str): 目标文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         # 确保目录存在
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         
@@ -444,7 +550,7 @@ class ResourceProcessor:
             source_path (str): 源文件路径
             target_path (str): 目标文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         # 确保目录存在
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         
@@ -1353,7 +1459,7 @@ class ResourceProcessor:
             source_path (str): 源文件路径
             target_path (str): 目标文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         # 确保目录存在
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         # 复制二进制文件
