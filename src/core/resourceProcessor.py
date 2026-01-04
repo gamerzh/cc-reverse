@@ -134,7 +134,7 @@ class ResourceProcessor:
                         
                         # 收集所有Prefab资源
                         for path_id, path_info in paths_dict.items():
-                            if isinstance(path_info, list) and len(path_info) > 0 and path_info[1] == prefab_type_index:
+                            if isinstance(path_info, list) and len(path_info) > 1 and path_info[1] == prefab_type_index:
                                 # 获取资源的相对路径
                                 resource_rel_path = path_info[0]
                                 
@@ -158,7 +158,7 @@ class ResourceProcessor:
                         
                         # 收集所有Scene资源
                         for path_id, path_info in paths_dict.items():
-                            if isinstance(path_info, list) and len(path_info) > 0 and path_info[1] == scene_type_index:
+                            if isinstance(path_info, list) and len(path_info) > 1 and path_info[1] == scene_type_index:
                                 # 获取资源的相对路径
                                 resource_rel_path = path_info[0]
                                 
@@ -257,11 +257,8 @@ class ResourceProcessor:
                 except Exception as e:
                     logger().error(f"处理资源配置文件 {config_file_path} 失败: {e}")
         
-        # 2. 收集所有可用的资源文件
-        all_image_files = []
-        all_font_files = []
-        all_sound_files = []
-        all_spine_files = []
+        # 2. 处理所有实际存在的资源文件
+        logger().info("开始处理所有实际存在的资源文件")
         
         # 处理每个资源目录
         for valid_asset_path in valid_asset_paths:
@@ -272,138 +269,10 @@ class ResourceProcessor:
                     # 计算相对于资源目录的路径
                     rel_path = os.path.relpath(file_path, valid_asset_path)
                     
-                    # 检测文件类型并添加到相应的列表
-                    file_ext = os.path.splitext(file)[1].lower()
-                    if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
-                        all_image_files.append((file_path, rel_path))
-                    elif file_ext in ['.ttf', '.otf', '.woff', '.woff2']:
-                        all_font_files.append((file_path, rel_path))
-                    elif file_ext in ['.mp3', '.wav', '.ogg', '.flac', '.aac']:
-                        all_sound_files.append((file_path, rel_path))
-                    elif file_ext in ['.json', '.atlas'] or 'spine' in rel_path:
-                        all_spine_files.append((file_path, rel_path))
-                    
                     # 处理不同类型的资源
                     self._processResource(file_path, rel_path, valid_asset_path, paths)
         
-        # 3. 为收集到的图片路径创建实际文件
-        logger().info(f"开始创建图片文件，共 {len(image_paths_to_create)} 个路径需要创建")
-        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
-        
-        # 遍历所有需要创建的图片路径
-        for i, image_info in enumerate(image_paths_to_create):
-            # 确保不超过可用图片数量
-            if i >= len(all_image_files):
-                logger().warn(f"图片路径数量超过可用图片文件数量，跳过剩余 {len(image_paths_to_create) - i} 个路径")
-                break
-            
-            # 获取一个图片文件
-            image_file_path, image_rel_path = all_image_files[i]
-            output_path = os.path.join(output_assets_path, image_info['output_path'])
-            
-            # 确保目录存在
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            # 复制图片文件到正确的位置
-            shutil.copy2(image_file_path, output_path)
-            logger().info(f"创建图片文件: {output_path}")
-            
-            # 添加到已处理资源列表
-            self.processed_resources.append({
-                'source': image_file_path,
-                'target': output_path,
-                'type': 'image/png',
-                'category': 'image',
-                'relative_path': image_info['output_path'],
-                'file_ext': '.png'
-            })
-        
-        # 4. 为收集到的字体路径创建实际文件
-        logger().info(f"开始创建字体文件，共 {len(font_paths_to_create)} 个路径需要创建")
-        for i, font_info in enumerate(font_paths_to_create):
-            # 确保不超过可用字体数量
-            if i >= len(all_font_files):
-                logger().warn(f"字体路径数量超过可用字体文件数量，跳过剩余 {len(font_paths_to_create) - i} 个路径")
-                break
-            
-            # 获取一个字体文件
-            font_file_path, font_rel_path = all_font_files[i]
-            output_path = os.path.join(output_assets_path, font_info['output_path'])
-            
-            # 确保目录存在
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            # 复制字体文件到正确的位置
-            shutil.copy2(font_file_path, output_path)
-            logger().info(f"创建字体文件: {output_path}")
-            
-            # 添加到已处理资源列表
-            self.processed_resources.append({
-                'source': font_file_path,
-                'target': output_path,
-                'type': 'font/ttf',
-                'category': 'font',
-                'relative_path': font_info['output_path'],
-                'file_ext': os.path.splitext(font_file_path)[1].lower()
-            })
-        
-        # 5. 为收集到的音效路径创建实际文件
-        logger().info(f"开始创建音效文件，共 {len(sound_paths_to_create)} 个路径需要创建")
-        for i, sound_info in enumerate(sound_paths_to_create):
-            # 确保不超过可用音效数量
-            if i >= len(all_sound_files):
-                logger().warn(f"音效路径数量超过可用音效文件数量，跳过剩余 {len(sound_paths_to_create) - i} 个路径")
-                break
-            
-            # 获取一个音效文件
-            sound_file_path, sound_rel_path = all_sound_files[i]
-            output_path = os.path.join(output_assets_path, sound_info['output_path'])
-            
-            # 确保目录存在
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            # 复制音效文件到正确的位置
-            shutil.copy2(sound_file_path, output_path)
-            logger().info(f"创建音效文件: {output_path}")
-            
-            # 添加到已处理资源列表
-            self.processed_resources.append({
-                'source': sound_file_path,
-                'target': output_path,
-                'type': 'audio/mpeg',
-                'category': 'audio',
-                'relative_path': sound_info['output_path'],
-                'file_ext': os.path.splitext(sound_file_path)[1].lower()
-            })
-        
-        # 6. 为收集到的骨骼动画路径创建实际文件
-        logger().info(f"开始创建骨骼动画文件，共 {len(spine_paths_to_create)} 个路径需要创建")
-        for i, spine_info in enumerate(spine_paths_to_create):
-            # 确保不超过可用骨骼动画数量
-            if i >= len(all_spine_files):
-                logger().warn(f"骨骼动画路径数量超过可用骨骼动画文件数量，跳过剩余 {len(spine_paths_to_create) - i} 个路径")
-                break
-            
-            # 获取一个骨骼动画文件
-            spine_file_path, spine_rel_path = all_spine_files[i]
-            output_path = os.path.join(output_assets_path, spine_info['output_path'])
-            
-            # 确保目录存在
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            # 复制骨骼动画文件到正确的位置
-            shutil.copy2(spine_file_path, output_path)
-            logger().info(f"创建骨骼动画文件: {output_path}")
-            
-            # 添加到已处理资源列表
-            self.processed_resources.append({
-                'source': spine_file_path,
-                'target': output_path,
-                'type': 'application/json',
-                'category': 'binary',
-                'relative_path': spine_info['output_path'],
-                'file_ext': os.path.splitext(spine_file_path)[1].lower()
-            })
+        logger().info("实际资源文件处理完成")
         
         # 处理Prefab资源，将编译后的JSON转换为.prefab格式
         if prefab_info:
@@ -503,9 +372,10 @@ class ResourceProcessor:
                 output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
                 logger().debug(f"非native目录图片，使用默认路径：{output_path}")
         
-        # 检查是否为编译后的资源配置文件，如果是则跳过，因为会在专门的逻辑中处理
-        if rel_path.startswith('config.') and rel_path.endswith('.json'):
-            logger().debug(f"跳过资源配置文件: {rel_path}")
+        # 检查是否为编译后的资源配置文件或JS文件，如果是则跳过
+        if (rel_path.startswith('config.') and rel_path.endswith('.json')) or \
+           (rel_path.startswith('index.') and rel_path.endswith('.js')):
+            logger().debug(f"跳过编译后的文件: {rel_path}")
             return
         
         try:
@@ -563,6 +433,7 @@ class ResourceProcessor:
         """
         # 优先根据文件扩展名判断
         ext_to_category = {
+            # 图片类型
             '.png': 'image',
             '.jpg': 'image',
             '.jpeg': 'image',
@@ -570,23 +441,46 @@ class ResourceProcessor:
             '.bmp': 'image',
             '.webp': 'image',
             '.tiff': 'image',
+            
+            # 音频类型
             '.mp3': 'audio',
             '.wav': 'audio',
             '.ogg': 'audio',
             '.flac': 'audio',
             '.aac': 'audio',
+            
+            # 视频类型
             '.mp4': 'video',
             '.webm': 'video',
+            
+            # 字体类型
             '.ttf': 'font',
             '.otf': 'font',
+            '.woff': 'font',
+            '.woff2': 'font',
+            
+            # 文本类型
             '.js': 'text',
             '.json': 'json',
             '.xml': 'xml',
             '.css': 'text',
             '.html': 'text',
             '.txt': 'text',
-            '.prefab': 'prefab',  # 添加Prefab文件类型支持
-            '.fire': 'scene'      # 添加场景文件类型支持
+            
+            # Cocos Creator 资源类型
+            '.prefab': 'prefab',  # Prefab文件
+            '.fire': 'scene',     # 场景文件
+            '.anim': 'animation', # 动画文件
+            '.controller': 'controller', # 控制器文件
+            '.material': 'material', # 材质文件
+            '.effect': 'effect',   # 特效文件
+            '.mat': 'material',    # 材质文件
+            '.cocos': 'cocos',    # Cocos文件
+            
+            # 其他类型
+            '.atlas': 'atlas',     # 图集文件
+            '.fnt': 'font',        # 位图字体文件
+            '.font': 'font',       # 字体文件
         }
         
         if file_ext in ext_to_category:
