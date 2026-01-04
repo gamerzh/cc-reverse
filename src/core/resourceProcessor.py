@@ -788,27 +788,53 @@ class ResourceProcessor:
         # 确保目录存在
         os.makedirs(os.path.dirname(lobby_scene_path), exist_ok=True)
         
-        # 创建基本的Scene文件结构
+        # 查找Lobby Prefab文件
+        source_res_path = paths.get('res', '')
+        lobby_prefab_paths = [
+            os.path.join(source_res_path, 'hall', 'prefabs', 'Lobby.json'),
+            os.path.join(source_res_path, 'hall', 'import', 'prefabs', 'Lobby.json'),
+            os.path.join(source_res_path, 'assets', 'hall', 'prefabs', 'Lobby.json'),
+            os.path.join(source_res_path, 'assets', 'hall', 'import', 'prefabs', 'Lobby.json')
+        ]
+        
+        actual_lobby_prefab_path = None
+        lobby_prefab_content = None
+        
+        for path in lobby_prefab_paths:
+            if os.path.exists(path):
+                actual_lobby_prefab_path = path
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        lobby_prefab_content = json.load(f)
+                    logger().info(f"找到Lobby Prefab文件: {path}")
+                    break
+                except Exception as e:
+                    logger().warn(f"读取Lobby Prefab文件 {path} 失败: {e}")
+        
+        # 创建更完整的Scene文件结构，接近源文件格式
         scene_content = [
+            # 添加cc.SceneAsset包装
+            {
+                "__type__": "cc.SceneAsset",
+                "_name": "",
+                "_objFlags": 0,
+                "_native": "",
+                "scene": {"__id__": 1}
+            },
+            # cc.Scene节点
             {
                 "__type__": "cc.Scene",
-                "_name": "LobbyScene",
+                "_name": "",
                 "_objFlags": 0,
-                "_active": True,
-                "_children": [],
+                "_parent": None,
+                "_children": [
+                    {
+                        "__id__": 2
+                    }
+                ],
+                "_active": False,
                 "_components": [],
-                "_persistRootNode": False
-            },
-            {
-                "__type__": "cc.Node",
-                "_name": "Canvas",
-                "_objFlags": 0,
-                "_parent": {
-                    "__id__": 0
-                },
-                "_children": [],
-                "_active": True,
-                "_components": [],
+                "_prefab": None,
                 "_opacity": 255,
                 "_color": {
                     "__type__": "cc.Color",
@@ -819,8 +845,206 @@ class ResourceProcessor:
                 },
                 "_contentSize": {
                     "__type__": "cc.Size",
-                    "width": 1920,
-                    "height": 1080
+                    "width": 0,
+                    "height": 0
+                },
+                "_anchorPoint": {
+                    "__type__": "cc.Vec2",
+                    "x": 0,
+                    "y": 0
+                },
+                "_trs": {
+                    "__type__": "TypedArray",
+                    "ctor": "Float64Array",
+                    "array": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+                },
+                "_is3DNode": True,
+                "_groupIndex": 0,
+                "groupIndex": 0,
+                "_id": "4e9a8f59-3efd-4396-b8ba-ce9328c3c06a"
+            },
+            # Canvas节点
+            {
+                "__type__": "cc.Node",
+                "_name": "Canvas",
+                "_objFlags": 0,
+                "_parent": {
+                    "__id__": 1
+                },
+                "_children": [
+                    {
+                        "__id__": 3
+                    },
+                    {
+                        "__id__": 5
+                    }
+                ],
+                "_active": True,
+                "_components": [
+                    {
+                        "__id__": 75
+                    },
+                    {
+                        "__id__": 76
+                    },
+                    {
+                        "__id__": 77
+                    }
+                ],
+                "_prefab": None,
+                "_opacity": 255,
+                "_color": {
+                    "__type__": "cc.Color",
+                    "r": 255,
+                    "g": 255,
+                    "b": 255,
+                    "a": 255
+                },
+                "_contentSize": {
+                    "__type__": "cc.Size",
+                    "width": 750,
+                    "height": 1334
+                },
+                "_anchorPoint": {
+                    "__type__": "cc.Vec2",
+                    "x": 0.5,
+                    "y": 0.5
+                },
+                "_trs": {
+                    "__type__": "TypedArray",
+                    "ctor": "Float64Array",
+                    "array": [375, 667, 0, 0, 0, 0, 1, 1, 1, 1]
+                },
+                "_eulerAngles": {
+                    "__type__": "cc.Vec3",
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "_skewX": 0,
+                "_skewY": 0,
+                "_is3DNode": False,
+                "_groupIndex": 0,
+                "groupIndex": 0,
+                "_id": "a5esZu+45LA5mBpvttspPD"
+            },
+            # Main Camera节点
+            {
+                "__type__": "cc.Node",
+                "_name": "Main Camera",
+                "_objFlags": 0,
+                "_parent": {
+                    "__id__": 2
+                },
+                "_children": [],
+                "_active": True,
+                "_components": [
+                    {
+                        "__id__": 4
+                    }
+                ],
+                "_prefab": None,
+                "_opacity": 255,
+                "_color": {
+                    "__type__": "cc.Color",
+                    "r": 255,
+                    "g": 255,
+                    "b": 255,
+                    "a": 255
+                },
+                "_contentSize": {
+                    "__type__": "cc.Size",
+                    "width": 750,
+                    "height": 1334
+                },
+                "_anchorPoint": {
+                    "__type__": "cc.Vec2",
+                    "x": 0.5,
+                    "y": 0.5
+                },
+                "_trs": {
+                    "__type__": "TypedArray",
+                    "ctor": "Float64Array",
+                    "array": [0, 0, 524.8113946933698, 0, 0, 0, 1, 1, 1, 1]
+                },
+                "_eulerAngles": {
+                    "__type__": "cc.Vec3",
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "_skewX": 0,
+                "_skewY": 0,
+                "_is3DNode": False,
+                "_groupIndex": 0,
+                "groupIndex": 0,
+                "_id": "e1WoFrQ79G7r4ZuQE3HlNb"
+            },
+            # Camera组件
+            {
+                "__type__": "cc.Camera",
+                "_name": "",
+                "_objFlags": 0,
+                "node": {
+                    "__id__": 3
+                },
+                "_enabled": True,
+                "_cullingMask": -1,
+                "_clearFlags": 7,
+                "_backgroundColor": {
+                    "__type__": "cc.Color",
+                    "r": 0,
+                    "g": 0,
+                    "b": 0,
+                    "a": 255
+                },
+                "_depth": -1,
+                "_zoomRatio": 1,
+                "_targetTexture": None,
+                "_fov": 60,
+                "_orthoSize": 10,
+                "_nearClip": 1,
+                "_farClip": 4096,
+                "_ortho": True,
+                "_rect": {
+                    "__type__": "cc.Rect",
+                    "x": 0,
+                    "y": 0,
+                    "width": 1,
+                    "height": 1
+                },
+                "_renderStages": 1,
+                "_alignWithScreen": True,
+                "_id": "81GN3uXINKVLeW4+iKSlim"
+            },
+            # pop节点
+            {
+                "__type__": "cc.Node",
+                "_name": "pop",
+                "_objFlags": 0,
+                "_parent": {
+                    "__id__": 2
+                },
+                "_children": [
+                    {
+                        "__id__": 6
+                    }
+                ],
+                "_active": True,
+                "_components": [],
+                "_prefab": None,
+                "_opacity": 255,
+                "_color": {
+                    "__type__": "cc.Color",
+                    "r": 34,
+                    "g": 54,
+                    "b": 62,
+                    "a": 255
+                },
+                "_contentSize": {
+                    "__type__": "cc.Size",
+                    "width": 750,
+                    "height": 1334
                 },
                 "_anchorPoint": {
                     "__type__": "cc.Vec2",
@@ -843,9 +1067,245 @@ class ResourceProcessor:
                 "_is3DNode": False,
                 "_groupIndex": 0,
                 "groupIndex": 0,
-                "_id": ""
+                "_id": "bfDb0NSkdM+YWIZi5TmzDQ"
+            },
+            # content节点
+            {
+                "__type__": "cc.Node",
+                "_name": "content",
+                "_objFlags": 0,
+                "_parent": {
+                    "__id__": 5
+                },
+                "_children": [],
+                "_active": True,
+                "_components": [],
+                "_prefab": None,
+                "_opacity": 255,
+                "_color": {
+                    "__type__": "cc.Color",
+                    "r": 255,
+                    "g": 255,
+                    "b": 255,
+                    "a": 255
+                },
+                "_contentSize": {
+                    "__type__": "cc.Size",
+                    "width": 750,
+                    "height": 1334
+                },
+                "_anchorPoint": {
+                    "__type__": "cc.Vec2",
+                    "x": 0.5,
+                    "y": 0.5
+                },
+                "_trs": {
+                    "__type__": "TypedArray",
+                    "ctor": "Float64Array",
+                    "array": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+                },
+                "_eulerAngles": {
+                    "__type__": "cc.Vec3",
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "_skewX": 0,
+                "_skewY": 0,
+                "_is3DNode": False,
+                "_groupIndex": 0,
+                "groupIndex": 0,
+                "_id": "34Qv4UCbRPravUrsIiLFqL"
+            },
+            # nav节点
+            {
+                "__type__": "cc.Node",
+                "_name": "nav",
+                "_objFlags": 0,
+                "_parent": {
+                    "__id__": 5
+                },
+                "_children": [],
+                "_active": True,
+                "_components": [],
+                "_prefab": None,
+                "_opacity": 255,
+                "_color": {
+                    "__type__": "cc.Color",
+                    "r": 255,
+                    "g": 255,
+                    "b": 255,
+                    "a": 255
+                },
+                "_contentSize": {
+                    "__type__": "cc.Size",
+                    "width": 751,
+                    "height": 108
+                },
+                "_anchorPoint": {
+                    "__type__": "cc.Vec2",
+                    "x": 0.5,
+                    "y": 0
+                },
+                "_trs": {
+                    "__type__": "TypedArray",
+                    "ctor": "Float64Array",
+                    "array": [0, -667, 0, 0, 0, 0, 1, 1, 1, 1]
+                },
+                "_eulerAngles": {
+                    "__type__": "cc.Vec3",
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "_skewX": 0,
+                "_skewY": 0,
+                "_is3DNode": False,
+                "_groupIndex": 0,
+                "groupIndex": 0,
+                "_id": "f36vjHLYBDmpncsHUPS9Ow"
+            },
+            # Lobby节点
+            {
+                "__type__": "cc.Node",
+                "_name": "Lobby",
+                "_objFlags": 0,
+                "_parent": {
+                    "__id__": 5
+                },
+                "_children": [],
+                "_active": True,
+                "_components": [
+                    {
+                        "__id__": 7
+                    }
+                ],
+                "_prefab": None,
+                "_opacity": 255,
+                "_color": {
+                    "__type__": "cc.Color",
+                    "r": 255,
+                    "g": 255,
+                    "b": 255,
+                    "a": 255
+                },
+                "_contentSize": {
+                    "__type__": "cc.Size",
+                    "width": 126,
+                    "height": 110
+                },
+                "_anchorPoint": {
+                    "__type__": "cc.Vec2",
+                    "x": 0.5,
+                    "y": 0.5
+                },
+                "_trs": {
+                    "__type__": "TypedArray",
+                    "ctor": "Float64Array",
+                    "array": [0, 56, 0, 0, 0, 0, 1, 1, 1, 1]
+                },
+                "_eulerAngles": {
+                    "__type__": "cc.Vec3",
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "_skewX": 0,
+                "_skewY": 0,
+                "_is3DNode": False,
+                "_groupIndex": 0,
+                "groupIndex": 0,
+                "_id": "76XwHJ1NVCwYl2Gu/hhCq3"
+            },
+            # Canvas组件
+            {
+                "__type__": "cc.Canvas",
+                "_name": "",
+                "_objFlags": 0,
+                "node": {
+                    "__id__": 2
+                },
+                "_enabled": True,
+                "_targetDisplay": 0,
+                "_resizeWithBrowserSize": True,
+                "_fitHeight": True,
+                "_fitWidth": True,
+                "_designResolution": {
+                    "__type__": "cc.Size",
+                    "width": 750,
+                    "height": 1334
+                },
+                "_devicePixelRatio": -1,
+                "_matchViewportAspectRatio": False,
+                "_alignV": 0,
+                "_alignH": 0,
+                "_resolutionPolicy": {
+                    "__type__": "cc.ResolutionPolicy",
+                    "_name": "EXACT_FIT"
+                },
+                "_pixelRatio": 1
+            },
+            # Widget组件
+            {
+                "__type__": "cc.Widget",
+                "_name": "",
+                "_objFlags": 0,
+                "node": {
+                    "__id__": 2
+                },
+                "_enabled": True,
+                "alignMode": 1,
+                "_target": None,
+                "_alignFlags": 45,
+                "_left": 0,
+                "_right": 0,
+                "_top": 0,
+                "_bottom": 0,
+                "_verticalCenter": 0,
+                "_horizontalCenter": 0,
+                "_isAbsLeft": True,
+                "_isAbsRight": True,
+                "_isAbsTop": True,
+                "_isAbsBottom": True,
+                "_isAbsHorizontalCenter": True,
+                "_isAbsVerticalCenter": True,
+                "_originalWidth": 0,
+                "_originalHeight": 0,
+                "_id": "58zGtcOE1KIreAWF8FA52m"
+            },
+            # PrefabInfo组件，引用Lobby Prefab
+            {
+                "__type__": "cc.PrefabInfo",
+                "root": {
+                    "__id__": 8
+                },
+                "asset": {
+                    "__uuid__": "",
+                    "__type__": "cc.Prefab"
+                },
+                "fileId": "hall/prefabs/Lobby",
+                "sync": False
             }
         ]
+        
+        # 如果找到Lobby Prefab内容，尝试将其整合到场景中
+        if lobby_prefab_content:
+            logger().info("将Lobby Prefab内容整合到场景中")
+            try:
+                # 将Prefab内容添加到场景内容中，从索引6开始
+                for i, item in enumerate(lobby_prefab_content, 6):
+                    scene_content.append(item)
+                
+                # 更新Canvas的子节点引用
+                if len(scene_content) > 2:
+                    scene_content[1]["_children"] = [
+                        {
+                            "__id__": 2
+                        }
+                    ]
+                
+            except Exception as e:
+                logger().warn(f"整合Lobby Prefab内容到场景中失败: {e}")
         
         # 写入场景文件
         fileManager.writeFile(lobby_scene_path, json.dumps(scene_content, indent=2, ensure_ascii=False))
@@ -857,14 +1317,21 @@ class ResourceProcessor:
             "ver": "1.0.3",
             "uuid": str(uuid_module.uuid4()),
             "asyncLoadAssets": False,
-            "subMetas": {}
+            "subMetas": {
+                "Lobby.prefab": {
+                    "ver": "1.0.3",
+                    "uuid": str(uuid_module.uuid4()),
+                    "asyncLoadAssets": False,
+                    "subMetas": {}
+                }
+            }
         }
         fileManager.writeFile(meta_file_path, json.dumps(meta_content, indent=2, ensure_ascii=False))
         logger().info(f"生成Scene.meta文件: {meta_file_path}")
         
         # 添加到已处理资源列表
         self.processed_resources.append({
-            'source': '',
+            'source': actual_lobby_prefab_path or '',
             'target': lobby_scene_path,
             'type': 'application/json',
             'category': 'scene',
