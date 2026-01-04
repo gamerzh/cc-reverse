@@ -225,8 +225,14 @@ class ResourceProcessor:
         
         logger().debug(f"处理资源: {rel_path}, 类型: {mime_type}, 类别: {resource_category}")
         
-        # 资源输出路径
-        output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
+        # 资源输出路径 - 确保图片资源路径与原工程一致
+        # 原工程图片路径格式：assets/res/[模块名]/...，只对图片资源添加res前缀
+        if resource_category == 'image':
+            # 图片资源使用res前缀
+            output_path = os.path.join(paths.get('output', ''), 'assets', 'res', rel_path)
+        else:
+            # 其他资源保持原有路径结构
+            output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
         
         # 检查是否为编译后的资源配置文件，如果是则跳过，因为会在专门的逻辑中处理
         if rel_path.startswith('config.') and rel_path.endswith('.json'):

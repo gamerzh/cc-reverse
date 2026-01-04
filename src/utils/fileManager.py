@@ -73,19 +73,26 @@ class FileManager:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
     
-    def readFile(self, path, mode="r"):
+    def readFile(self, path, mode="r", encoding="utf-8"):
         """
         读取文件
         
         Args:
             path (str): 文件路径
             mode (str): 读取模式
+            encoding (str): 文本模式下的编码格式，默认utf-8
         
         Returns:
             str or bytes: 文件内容
         """
-        with open(path, mode) as f:
-            return f.read()
+        if "b" in mode:
+            # 二进制模式不需要编码
+            with open(path, mode) as f:
+                return f.read()
+        else:
+            # 文本模式使用指定编码
+            with open(path, mode, encoding=encoding) as f:
+                return f.read()
     
     def deleteFile(self, path):
         """
