@@ -7,9 +7,9 @@ import os
 import sys
 import shutil
 import json
-from src.utils.fileManager import fileManager
-from src.utils.logger import logger
-from src.config.configLoader import loadConfig
+from utils.fileManager import fileManager
+from utils.logger import logger
+from config.configLoader import loadConfig
 
 global_config = {}
 global_verbose = False
@@ -104,9 +104,9 @@ def reverseProject(options):
         logger().success("项目设置解析完成")
         
         # 导入需要在全局变量设置后使用的模块
-        from src.core.codeAnalyzer import codeAnalyzer
-        from src.core.resourceProcessor import resourceProcessor
-        from src.core.projectGenerator import projectGenerator
+        from core.codeAnalyzer import codeAnalyzer
+        from core.resourceProcessor import resourceProcessor
+        from core.projectGenerator import projectGenerator
         
         # 先创建项目结构
         logger().info("创建项目目录结构...")

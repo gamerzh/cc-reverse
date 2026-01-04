@@ -22,8 +22,8 @@ class ProjectGenerator:
         Args:
             paths (dict): 路径字典，包含output等路径
         """
-        from src.utils.logger import logger
-        from src.core.reverseEngine import global_paths as global_paths_global, global_config, global_cocosVersion
+        from utils.logger import logger
+        from core.reverseEngine import global_paths as global_paths_global, global_config, global_cocosVersion
         
         # 使用传入的paths或全局global_paths
         current_paths = paths if paths is not None else global_paths_global
@@ -86,8 +86,8 @@ class ProjectGenerator:
             paths (dict): 路径字典
             cocos_version (str): Cocos Creator版本
         """
-        from src.utils.fileManager import fileManager
-        from src.utils.logger import logger
+        from utils.fileManager import fileManager
+        from utils.logger import logger
         
         # 根据Cocos Creator版本设置不同的配置
         if cocos_version.startswith('2.4'):
@@ -142,8 +142,8 @@ class ProjectGenerator:
         Args:
             paths (dict): 路径字典
         """
-        from src.utils.fileManager import fileManager
-        from src.utils.logger import logger
+        from utils.fileManager import fileManager
+        from utils.logger import logger
         
         settings_dir = os.path.join(paths.get('output', ''), 'settings')
         
@@ -186,8 +186,8 @@ class ProjectGenerator:
         Args:
             paths (dict): 路径字典
         """
-        from src.utils.fileManager import fileManager
-        from src.utils.logger import logger
+        from utils.fileManager import fileManager
+        from utils.logger import logger
         
         package_json = {
             "name": "cc-reverse-project",
@@ -212,7 +212,7 @@ class ProjectGenerator:
         """
         生成assets目录下的资源
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         logger().debug("生成assets目录下的资源...")
         
         # 这里可以添加更多资源生成逻辑
@@ -226,7 +226,7 @@ class ProjectGenerator:
             paths (dict): 路径字典
         """
         from src.utils.logger import logger
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         
         logger().info("生成meta文件...")
         
@@ -334,8 +334,8 @@ class ProjectGenerator:
         Args:
             paths (dict): 路径字典
         """
-        from src.utils.fileManager import fileManager
-        from src.utils.logger import logger
+        from utils.fileManager import fileManager
+        from utils.logger import logger
         
         # 创建scenes目录
         scenes_dir = os.path.join(paths.get('output', ''), 'assets', 'scenes')

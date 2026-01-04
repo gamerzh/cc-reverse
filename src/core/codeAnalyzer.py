@@ -27,7 +27,7 @@ class CodeAnalyzer:
             code (str): JavaScript代码
             file_path (str): 可选的文件路径
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         logger().debug(f"开始分析代码... 文件: {file_path}")
         
         try:
@@ -67,7 +67,7 @@ class CodeAnalyzer:
             code (str): JavaScript代码
             file_path (str): 可选的文件路径
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         import re
         
         logger().debug(f"使用正则表达式分析代码... 文件: {file_path}")
@@ -153,7 +153,7 @@ class CodeAnalyzer:
             nodes (list): AST节点列表
             file_path (str): 可选的文件路径
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         
         for node in nodes:
             if isinstance(node, dict):
@@ -359,8 +359,8 @@ class CodeAnalyzer:
         Args:
             file_paths (list): 文件路径列表
         """
-        from src.utils.logger import logger
-        from src.utils.fileManager import fileManager
+        from utils.logger import logger
+        from utils.fileManager import fileManager
         
         for file_path in file_paths:
             try:
@@ -378,7 +378,7 @@ class CodeAnalyzer:
             output_path (str): 输出目录路径
         """
         from src.utils.logger import logger
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         
         logger().info(f"生成脚本文件到: {output_path}")
         

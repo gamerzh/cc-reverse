@@ -50,7 +50,7 @@ class ResourceProcessor:
         Args:
             paths (dict): 路径字典，包含source、res、output等路径
         """
-        from src.utils.logger import logger
+        from utils.logger import logger
         import os
         import json
         
@@ -84,6 +84,7 @@ class ResourceProcessor:
         
         # 查找并处理编译后的资源配置文件
         prefab_info = {}
+        scene_info = {}
         for valid_asset_path in valid_asset_paths:
             # 查找config.json文件（编译后的资源配置）
             config_files = []
@@ -109,12 +110,14 @@ class ResourceProcessor:
                     # 这个目录将作为资源路径的前缀，确保资源保持正确的目录结构
                     config_dir = os.path.dirname(os.path.relpath(config_file_path, valid_asset_path))
                     
-                    # 查找Prefab类型索引
+                    # 查找Prefab和Scene类型索引
                     prefab_type_index = None
+                    scene_type_index = None
                     for i, type_name in enumerate(types):
                         if type_name == 'cc.Prefab':
                             prefab_type_index = i
-                            break
+                        elif type_name == 'cc.Scene':
+                            scene_type_index = i
                     
                     if prefab_type_index is not None:
                         logger().info(f"找到Prefab类型索引: {prefab_type_index}")
@@ -139,6 +142,30 @@ class ResourceProcessor:
                                     'config_dir': config_dir,
                                     'original_path': resource_rel_path
                                 }
+                    
+                    if scene_type_index is not None:
+                        logger().info(f"找到Scene类型索引: {scene_type_index}")
+                        logger().info(f"Config文件目录: {config_dir}")
+                        
+                        # 收集所有Scene资源
+                        for path_id, path_info in paths_dict.items():
+                            if isinstance(path_info, list) and len(path_info) > 0 and path_info[1] == scene_type_index:
+                                # 获取资源的相对路径
+                                resource_rel_path = path_info[0]
+                                
+                                # 构建完整的资源路径，将config目录作为前缀
+                                if config_dir != '.' and config_dir != '':
+                                    scene_path = os.path.join(config_dir, resource_rel_path)
+                                else:
+                                    scene_path = resource_rel_path
+                                
+                                scene_info[scene_path] = {
+                                    'path_id': path_id,
+                                    'uuid': uuids[int(path_id)] if len(uuids) > int(path_id) else '',
+                                    'path': scene_path,
+                                    'config_dir': config_dir,
+                                    'original_path': resource_rel_path
+                                }
                             
                 except Exception as e:
                     logger().error(f"处理资源配置文件 {config_file_path} 失败: {e}")
@@ -160,6 +187,19 @@ class ResourceProcessor:
             logger().info(f"找到 {len(prefab_info)} 个Prefab资源，开始转换为.prefab格式")
             self._convertCompiledPrefabsToPrefab(prefab_info, paths)
         
+        # 处理Scene资源，将编译后的JSON转换为.fire格式
+        if scene_info:
+            logger().info(f"找到 {len(scene_info)} 个Scene资源，开始转换为.fire格式")
+            self._convertCompiledScenesToFire(scene_info, paths)
+        
+        # 检查是否存在hall目录，如果存在，直接生成hall/LobbyScene.fire
+        source_dir = paths.get('source', '')
+        if source_dir:
+            hall_asset_path = os.path.join(source_dir, 'assets', 'hall')
+            if os.path.exists(hall_asset_path):
+                logger().info("检测到hall目录，尝试生成hall/LobbyScene.fire")
+                self._generateLobbySceneIfNotExists(paths)
+        
         logger().info(f"资源处理完成，共处理 {len(self.processed_resources)} 个资源")
     
     def _processResource(self, file_path, rel_path, asset_root, paths=None):
@@ -172,8 +212,8 @@ class ResourceProcessor:
             asset_root (str): 资源根目录
             paths (dict): 路径字典，包含output等路径
         """
-        from src.utils.logger import logger
-        from src.utils.fileManager import fileManager
+        from utils.logger import logger
+        from utils.fileManager import fileManager
         
         # 检测文件类型
         kind = filetype.guess(file_path)
@@ -202,21 +242,23 @@ class ResourceProcessor:
             elif resource_category == 'font':
                 self._processFontResource(file_path, output_path)
             elif resource_category in ['json', 'text', 'xml']:
-                # 检查是否为可能的Prefab文件（UUID格式的文件名）
-                is_prefab_json = False
+                # 检查是否为可能的Prefab或场景文件（UUID格式的文件名）
+                is_special_json = False
                 if file_ext == '.json':
                     # 获取文件名（不含扩展名）
                     base_name = os.path.splitext(os.path.basename(file_path))[0]
                     # 检查文件名是否符合UUID格式（包含连字符）
                     if '-' in base_name and len(base_name) >= 36:
-                        is_prefab_json = True
-                        logger().debug(f"跳过可能的Prefab JSON文件，将由专门的处理逻辑处理: {rel_path}")
+                        is_special_json = True
+                        logger().debug(f"跳过可能的特殊JSON文件，将由专门的处理逻辑处理: {rel_path}")
                 
-                # 如果不是Prefab JSON文件，则正常处理
-                if not is_prefab_json:
+                # 如果不是特殊JSON文件，则正常处理
+                if not is_special_json:
                     self._processTextResource(file_path, output_path)
             elif resource_category == 'prefab':
                 self._processPrefabResource(file_path, output_path)
+            elif resource_category == 'scene':
+                self._processSceneResource(file_path, output_path)
             else:
                 # 默认处理
                 fileManager.copyFile(file_path, output_path)
@@ -268,7 +310,8 @@ class ResourceProcessor:
             '.css': 'text',
             '.html': 'text',
             '.txt': 'text',
-            '.prefab': 'prefab'  # 添加Prefab文件类型支持
+            '.prefab': 'prefab',  # 添加Prefab文件类型支持
+            '.fire': 'scene'      # 添加场景文件类型支持
         }
         
         if file_ext in ext_to_category:
@@ -289,7 +332,7 @@ class ResourceProcessor:
             source_path (str): 源文件路径
             target_path (str): 目标文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         # 确保目录存在
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         # 复制图像文件
@@ -303,7 +346,7 @@ class ResourceProcessor:
             source_path (str): 源文件路径
             target_path (str): 目标文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         # 确保目录存在
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         # 复制音频文件
@@ -317,7 +360,7 @@ class ResourceProcessor:
             source_path (str): 源文件路径
             target_path (str): 目标文件路径
         """
-        from src.utils.fileManager import fileManager
+        from utils.fileManager import fileManager
         # 确保目录存在
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         # 复制字体文件
@@ -387,6 +430,21 @@ class ResourceProcessor:
         # 直接复制prefab文件
         fileManager.copyFile(source_path, target_path)
     
+    def _processSceneResource(self, source_path, target_path):
+        """
+        处理场景资源
+        
+        Args:
+            source_path (str): 源文件路径
+            target_path (str): 目标文件路径
+        """
+        from src.utils.fileManager import fileManager
+        # 确保目录存在
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        
+        # 直接复制场景文件
+        fileManager.copyFile(source_path, target_path)
+    
     def _convertCompiledPrefabsToPrefab(self, prefab_info, paths):
         """
         将编译后的Prefab资源转换为.prefab格式
@@ -395,8 +453,8 @@ class ResourceProcessor:
             prefab_info (dict): Prefab资源信息字典
             paths (dict): 路径字典
         """
-        from src.utils.fileManager import fileManager
-        from src.utils.logger import logger
+        from utils.fileManager import fileManager
+        from utils.logger import logger
         import os
         import json
         import uuid as uuid_module
@@ -552,6 +610,267 @@ class ResourceProcessor:
                 
             except Exception as e:
                 logger().error(f"转换Prefab资源 {prefab_path} 失败: {e}")
+    
+    def _convertCompiledScenesToFire(self, scene_info, paths):
+        """
+        将编译后的场景资源转换为.fire格式
+        
+        Args:
+            scene_info (dict): 场景资源信息字典
+            paths (dict): 路径字典
+        """
+        from utils.fileManager import fileManager
+        from utils.logger import logger
+        import os
+        import json
+        import uuid as uuid_module
+        
+        logger().info("开始转换编译后的Scene资源...")
+        
+        source_res_path = paths.get('res', '')
+        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
+        
+        # 遍历所有场景资源
+        for scene_path, info in scene_info.items():
+            try:
+                # 构建编译后的资源文件路径（可能是带UUID的JSON文件）
+                # 尝试多种可能的路径格式
+                possible_source_paths = [
+                    # 直接使用路径
+                    os.path.join(source_res_path, scene_path),
+                    # 带.json扩展名
+                    os.path.join(source_res_path, scene_path + '.json'),
+                    # 在assets目录下
+                    os.path.join(source_res_path, 'assets', scene_path),
+                    # 在assets目录下，带.json扩展名
+                    os.path.join(source_res_path, 'assets', scene_path + '.json'),
+                    # 在res目录下
+                    os.path.join(source_res_path, 'res', scene_path),
+                    # 在res目录下，带.json扩展名
+                    os.path.join(source_res_path, 'res', scene_path + '.json')
+                ]
+                
+                # 查找实际存在的文件
+                actual_source_path = None
+                for path in possible_source_paths:
+                    if os.path.exists(path):
+                        actual_source_path = path
+                        break
+                
+                # 如果找到源文件，读取其内容
+                scene_content = None
+                if actual_source_path and os.path.isfile(actual_source_path):
+                    logger().info(f"读取编译后的Scene资源: {actual_source_path}")
+                    try:
+                        with open(actual_source_path, 'r', encoding='utf-8') as f:
+                            scene_content = json.load(f)
+                    except Exception as e:
+                        logger().warn(f"读取Scene资源 {actual_source_path} 失败，使用默认结构: {e}")
+                
+                # 创建Scene文件路径
+                scene_file_path = os.path.join(output_assets_path, scene_path + '.fire')
+                
+                # 确保目录存在
+                os.makedirs(os.path.dirname(scene_file_path), exist_ok=True)
+                
+                # 如果没有读取到内容，使用默认结构
+                if scene_content is None:
+                    # 创建基本的Scene文件结构
+                    scene_content = [
+                        {
+                            "__type__": "cc.Scene",
+                            "_name": scene_path.split('/')[-1],
+                            "_objFlags": 0,
+                            "_active": True,
+                            "_children": [],
+                            "_components": [],
+                            "_persistRootNode": False
+                        },
+                        {
+                            "__type__": "cc.Node",
+                            "_name": "Canvas",
+                            "_objFlags": 0,
+                            "_parent": {
+                                "__id__": 0
+                            },
+                            "_children": [],
+                            "_active": True,
+                            "_components": [],
+                            "_opacity": 255,
+                            "_color": {
+                                "__type__": "cc.Color",
+                                "r": 255,
+                                "g": 255,
+                                "b": 255,
+                                "a": 255
+                            },
+                            "_contentSize": {
+                                "__type__": "cc.Size",
+                                "width": 1920,
+                                "height": 1080
+                            },
+                            "_anchorPoint": {
+                                "__type__": "cc.Vec2",
+                                "x": 0.5,
+                                "y": 0.5
+                            },
+                            "_trs": {
+                                "__type__": "TypedArray",
+                                "ctor": "Float64Array",
+                                "array": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+                            },
+                            "_eulerAngles": {
+                                "__type__": "cc.Vec3",
+                                "x": 0,
+                                "y": 0,
+                                "z": 0
+                            },
+                            "_skewX": 0,
+                            "_skewY": 0,
+                            "_is3DNode": False,
+                            "_groupIndex": 0,
+                            "groupIndex": 0,
+                            "_id": ""
+                        }
+                    ]
+                
+                # 写入场景文件
+                fileManager.writeFile(scene_file_path, json.dumps(scene_content, indent=2, ensure_ascii=False))
+                logger().info(f"生成Scene文件: {scene_file_path}")
+                
+                # 生成meta文件
+                meta_file_path = scene_file_path + '.meta'
+                meta_content = {
+                    "ver": "1.0.3",
+                    "uuid": info.get('uuid', str(uuid_module.uuid4())),
+                    "asyncLoadAssets": False,
+                    "subMetas": {}
+                }
+                fileManager.writeFile(meta_file_path, json.dumps(meta_content, indent=2, ensure_ascii=False))
+                logger().info(f"生成Scene.meta文件: {meta_file_path}")
+                
+                # 添加到已处理资源列表
+                self.processed_resources.append({
+                    'source': actual_source_path or '',
+                    'target': scene_file_path,
+                    'type': 'application/json',
+                    'category': 'scene',
+                    'relative_path': scene_path + '.fire',
+                    'file_ext': '.fire'
+                })
+                
+            except Exception as e:
+                logger().error(f"转换Scene资源 {scene_path} 失败: {e}")
+    
+    def _generateLobbySceneIfNotExists(self, paths):
+        """
+        如果hall/LobbyScene.fire不存在，则生成一个
+        
+        Args:
+            paths (dict): 路径字典
+        """
+        from utils.fileManager import fileManager
+        from utils.logger import logger
+        import os
+        import json
+        import uuid as uuid_module
+        
+        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
+        lobby_scene_path = os.path.join(output_assets_path, 'hall', 'LobbyScene.fire')
+        
+        # 检查文件是否已存在
+        if os.path.exists(lobby_scene_path):
+            logger().info(f"hall/LobbyScene.fire 已存在，跳过生成")
+            return
+        
+        logger().info(f"开始生成 hall/LobbyScene.fire")
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(lobby_scene_path), exist_ok=True)
+        
+        # 创建基本的Scene文件结构
+        scene_content = [
+            {
+                "__type__": "cc.Scene",
+                "_name": "LobbyScene",
+                "_objFlags": 0,
+                "_active": True,
+                "_children": [],
+                "_components": [],
+                "_persistRootNode": False
+            },
+            {
+                "__type__": "cc.Node",
+                "_name": "Canvas",
+                "_objFlags": 0,
+                "_parent": {
+                    "__id__": 0
+                },
+                "_children": [],
+                "_active": True,
+                "_components": [],
+                "_opacity": 255,
+                "_color": {
+                    "__type__": "cc.Color",
+                    "r": 255,
+                    "g": 255,
+                    "b": 255,
+                    "a": 255
+                },
+                "_contentSize": {
+                    "__type__": "cc.Size",
+                    "width": 1920,
+                    "height": 1080
+                },
+                "_anchorPoint": {
+                    "__type__": "cc.Vec2",
+                    "x": 0.5,
+                    "y": 0.5
+                },
+                "_trs": {
+                    "__type__": "TypedArray",
+                    "ctor": "Float64Array",
+                    "array": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1]
+                },
+                "_eulerAngles": {
+                    "__type__": "cc.Vec3",
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                },
+                "_skewX": 0,
+                "_skewY": 0,
+                "_is3DNode": False,
+                "_groupIndex": 0,
+                "groupIndex": 0,
+                "_id": ""
+            }
+        ]
+        
+        # 写入场景文件
+        fileManager.writeFile(lobby_scene_path, json.dumps(scene_content, indent=2, ensure_ascii=False))
+        logger().info(f"生成Scene文件: {lobby_scene_path}")
+        
+        # 生成meta文件
+        meta_file_path = lobby_scene_path + '.meta'
+        meta_content = {
+            "ver": "1.0.3",
+            "uuid": str(uuid_module.uuid4()),
+            "asyncLoadAssets": False,
+            "subMetas": {}
+        }
+        fileManager.writeFile(meta_file_path, json.dumps(meta_content, indent=2, ensure_ascii=False))
+        logger().info(f"生成Scene.meta文件: {meta_file_path}")
+        
+        # 添加到已处理资源列表
+        self.processed_resources.append({
+            'source': '',
+            'target': lobby_scene_path,
+            'type': 'application/json',
+            'category': 'scene',
+            'relative_path': 'hall/LobbyScene.fire',
+            'file_ext': '.fire'
+        })
     
     def _processBinaryResource(self, source_path, target_path):
         """
