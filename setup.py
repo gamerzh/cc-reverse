@@ -17,7 +17,8 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Crain99/cc-reverse",
-    packages=find_packages(),
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
@@ -34,7 +35,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "cc-reverse=cc_reverse.main:cli",
+            "cc-reverse=main:cli",
         ],
     },
 )

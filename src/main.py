@@ -9,11 +9,12 @@ import click
 from rich.console import Console
 from rich.theme import Theme
 
-# 添加src目录到Python路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 # 导入核心模块
-from core.reverseEngine import reverseProject
+from src.core.reverseEngine import reverseProject
 
 # 自定义主题
 custom_theme = Theme({

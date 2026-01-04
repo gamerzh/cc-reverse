@@ -423,6 +423,19 @@ class ResourceProcessor:
                 logger().info("检测到hall目录，尝试生成hall/LobbyScene.fire")
                 self._generateLobbySceneIfNotExists(paths)
         
+        # 删除输出目录中的空文件夹
+        from utils.fileManager import fileManager
+        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
+        
+        # 1. 删除编译后的目录（import和native）
+        logger().info(f"开始删除编译后的目录: {output_assets_path}")
+        fileManager.deleteDirectoriesByName(output_assets_path, ['import', 'native'])
+        
+        # 2. 删除空目录
+        logger().info(f"开始删除输出目录中的空文件夹: {output_assets_path}")
+        fileManager.deleteEmptyDirectories(output_assets_path)
+        logger().info(f"空文件夹删除完成")
+        
         logger().info(f"资源处理完成，共处理 {len(self.processed_resources)} 个资源")
     
     def _processResource(self, file_path, rel_path, asset_root, paths=None):

@@ -6,6 +6,7 @@
 import os
 import shutil
 from tqdm import tqdm
+from utils.logger import logger
 
 class FileManager:
     """文件管理类"""
@@ -163,6 +164,107 @@ class FileManager:
             if os.path.isdir(item_path):
                 dirs.append(item_path)
         return dirs
+    
+    def deleteEmptyDirectories(self, directory, max_retries=3):
+        """
+        递归删除空目录
+        
+        Args:
+            directory (str): 目录路径
+            max_retries (int): 最大重试次数，用于处理并发目录变化
+        
+        Returns:
+            bool: 目录是否被删除
+        """
+        logger().info(f"开始递归删除空目录: {directory}")
+        
+        # 递归处理，确保我们能处理深层嵌套的空目录
+        def _delete_empty_dirs(path):
+            if not os.path.exists(path):
+                return True
+            
+            if not os.path.isdir(path):
+                return False
+            
+            # 先处理所有子目录
+            for item in os.listdir(path):
+                item_path = os.path.join(path, item)
+                if os.path.isdir(item_path):
+                    _delete_empty_dirs(item_path)
+            
+            # 检查当前目录是否为空
+            try:
+                contents = os.listdir(path)
+                logger().debug(f"目录 {path} 包含 {len(contents)} 个项目: {contents}")
+                
+                if not contents:
+                    os.rmdir(path)
+                    logger().info(f"已删除空目录: {path}")
+                    return True
+                else:
+                    logger().debug(f"目录 {path} 不为空，跳过删除")
+                    return False
+            except Exception as e:
+                logger().error(f"处理目录 {path} 时出错: {e}")
+                return False
+        
+        # 重试多次，确保所有空目录都被删除
+        for i in range(max_retries):
+            logger().debug(f"第 {i+1} 次尝试删除空目录: {directory}")
+            _delete_empty_dirs(directory)
+            
+            # 检查顶层目录是否还存在
+            if not os.path.exists(directory):
+                logger().info(f"顶层目录 {directory} 已被删除")
+                return True
+            
+            # 检查顶层目录是否为空
+            if not os.listdir(directory):
+                try:
+                    os.rmdir(directory)
+                    logger().info(f"已删除顶层空目录: {directory}")
+                    return True
+                except Exception as e:
+                    logger().error(f"删除顶层目录 {directory} 时出错: {e}")
+        
+        logger().info(f"空目录删除完成，剩余目录: {directory}")
+        return False
+    
+    def deleteDirectoriesByName(self, directory, dir_names):
+        """
+        递归删除指定名称的目录
+        
+        Args:
+            directory (str): 目录路径
+            dir_names (list): 要删除的目录名称列表
+        """
+        logger().info(f"开始递归删除指定名称的目录: {directory}, 目录名: {dir_names}")
+        
+        if not os.path.exists(directory):
+            logger().debug(f"目录不存在，跳过: {directory}")
+            return
+        
+        if not os.path.isdir(directory):
+            logger().debug(f"不是目录，跳过: {directory}")
+            return
+        
+        # 处理当前目录的子目录
+        for item in os.listdir(directory):
+            item_path = os.path.join(directory, item)
+            if os.path.isdir(item_path):
+                # 如果目录名在要删除的列表中，删除整个目录
+                if item in dir_names:
+                    logger().info(f"删除目录: {item_path}")
+                    try:
+                        shutil.rmtree(item_path)
+                        logger().info(f"已删除目录: {item_path}")
+                    except Exception as e:
+                        logger().error(f"删除目录 {item_path} 时出错: {e}")
+                else:
+                    # 否则递归处理子目录
+                    self.deleteDirectoriesByName(item_path, dir_names)
+        
+        logger().info(f"指定名称目录删除完成: {directory}")
 
 # 创建全局实例
 fileManager = FileManager()
