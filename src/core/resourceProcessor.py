@@ -344,7 +344,8 @@ class ResourceProcessor:
                             # assets/xxx -> output/assets/xxx
                             output_dir = os.path.join(output_assets_path, rel_dir_clean[len('assets' + os.sep):])
                     else:
-                        output_dir = os.path.join(output_assets_path, module_name, rel_dir_clean)
+                        # 模块资源直接输出到模块目录，而不是assets目录下
+                        output_dir = os.path.join(paths.get('output', ''), module_name, rel_dir_clean)
                 
                 os.makedirs(output_dir, exist_ok=True)
                 for file in files:
@@ -387,17 +388,63 @@ class ResourceProcessor:
                         rel_path_normalized = rel_path.replace('\\', '/')
                         
                         # 确定输出相对路径，保持原始目录结构
-                        # 注意：输出路径已经是 output/assets，所以如果 rel_path 包含 assets/，需要移除
+                        # 优化：将模块脚本输出到模块目录的script/子目录，而不是assets/scripts目录
+                        # 例如：assets/scripts/hall/script/AgentBuy.ts -> hall/script/AgentBuy.ts
+                        # 例如：assets/scripts/libs/wx/jweixin-1.6.0.js -> assets/scripts/libs/wx/jweixin-1.6.0.js（全局库保持原结构）
+                        
+                        # 检查是否为模块脚本（assets/scripts/<module>/...）
                         if rel_path_normalized.startswith('assets/scripts/'):
-                            # 如果已经是assets/scripts/，移除assets/前缀，只保留scripts/之后的部分
-                            scripts_part = rel_path_normalized[15:]  # 移除 'assets/scripts/' 前缀
-                            output_rel_path = os.path.join('assets', 'scripts', scripts_part).replace('\\', '/')
+                            # 移除 'assets/scripts/' 前缀
+                            path_without_prefix = rel_path_normalized[15:]  # 移除 'assets/scripts/' 前缀
+                            path_parts = path_without_prefix.split('/')
+                            
+                            if len(path_parts) > 0:
+                                module_name = path_parts[0]
+                                # 检查是否为全局脚本库（如libs）
+                                if module_name == 'libs':
+                                    # 全局脚本库，保持assets/scripts结构
+                                    output_rel_path = os.path.join('assets', 'scripts', path_without_prefix).replace('\\', '/')
+                                else:
+                                    # 模块脚本，输出到模块目录的script/子目录
+                                    # 如果路径中有script子目录（如hall/script/），保持该结构
+                                    if len(path_parts) > 1 and path_parts[1] == 'script':
+                                        # 已经是模块/script/结构，直接输出到模块目录
+                                        output_rel_path = path_without_prefix.replace('\\', '/')
+                                    else:
+                                        # 模块脚本但没有script子目录，添加到script/子目录
+                                        script_dir = os.path.join(module_name, 'script')
+                                        if len(path_parts) > 1:
+                                            # 有子目录，保持结构
+                                            sub_path = '/'.join(path_parts[1:])
+                                            output_rel_path = os.path.join(script_dir, sub_path).replace('\\', '/')
+                                        else:
+                                            # 只有文件名，直接放在script/下
+                                            output_rel_path = os.path.join(script_dir, os.path.basename(rel_path)).replace('\\', '/')
+                            else:
+                                # 特殊情况，直接放在assets/scripts下
+                                output_rel_path = os.path.join('assets', 'scripts', os.path.basename(rel_path)).replace('\\', '/')
                         elif rel_path_normalized.startswith('assets/'):
-                            # 如果以assets/开头但不是scripts，移除assets/前缀
+                            # 如果以assets/开头但不是scripts，检查是否为模块资源
                             path_without_assets = rel_path_normalized[7:]  # 移除 'assets/' 前缀
-                            output_rel_path = os.path.join('assets', path_without_assets).replace('\\', '/')
+                            path_parts = path_without_assets.split('/')
+                            if len(path_parts) > 0:
+                                module_name = path_parts[0]
+                                # 检查是否为已知模块（非scripts、非libs）
+                                if module_name not in ['scripts', 'libs']:
+                                    # 模块脚本，输出到模块目录的script/子目录
+                                    script_dir = os.path.join(module_name, 'script')
+                                    if len(path_parts) > 1:
+                                        sub_path = '/'.join(path_parts[1:])
+                                        output_rel_path = os.path.join(script_dir, sub_path).replace('\\', '/')
+                                    else:
+                                        output_rel_path = os.path.join(script_dir, os.path.basename(rel_path)).replace('\\', '/')
+                                else:
+                                    # 其他assets目录下的脚本，保持原结构
+                                    output_rel_path = os.path.join('assets', path_without_assets).replace('\\', '/')
+                            else:
+                                output_rel_path = os.path.join('assets', path_without_assets).replace('\\', '/')
                         elif rel_path_normalized.startswith('scripts/'):
-                            # 如果以scripts/开头，添加到assets/下
+                            # 如果以scripts/开头，添加到assets/下（全局脚本）
                             output_rel_path = os.path.join('assets', rel_path).replace('\\', '/')
                         elif 'scripts' in rel_path_normalized:
                             # 如果路径中包含scripts，尝试提取scripts之后的部分
@@ -409,14 +456,28 @@ class ResourceProcessor:
                                 # 如果找不到scripts/，使用文件名
                                 output_rel_path = os.path.join('assets', 'scripts', os.path.basename(rel_path)).replace('\\', '/')
                         else:
-                            # 如果不在scripts目录下，移动到assets/scripts，但保持子目录结构
-                            # 尝试从模块名推断路径
+                            # 如果不在scripts目录下，尝试推断模块名
                             path_parts = rel_path.split(os.sep)
                             if len(path_parts) > 1:
-                                # 有子目录，保持结构
-                                output_rel_path = os.path.join('assets', 'scripts', rel_path).replace('\\', '/')
+                                # 有子目录，检查第一个目录是否为模块名
+                                module_name = path_parts[0]
+                                # 检查是否为已知模块（根据常见模块列表）
+                                known_modules = ['hall', 'fhpoker', 'guandan', 'xslb', 'kxmahjong', 'qianfen', 'liabang']
+                                if module_name in known_modules:
+                                    # 检查路径是否已经包含script子目录
+                                    if len(path_parts) > 1 and path_parts[1] == 'script':
+                                        # 已经是模块/script/结构，直接使用
+                                        output_rel_path = rel_path.replace('\\', '/')
+                                    else:
+                                        # 模块脚本，输出到模块目录的script/子目录
+                                        script_dir = os.path.join(module_name, 'script')
+                                        sub_path = '/'.join(path_parts[1:])
+                                        output_rel_path = os.path.join(script_dir, sub_path).replace('\\', '/')
+                                else:
+                                    # 未知模块，移动到assets/scripts，但保持子目录结构
+                                    output_rel_path = os.path.join('assets', 'scripts', rel_path).replace('\\', '/')
                             else:
-                                # 只有文件名，直接放在scripts下
+                                # 只有文件名，直接放在assets/scripts下
                                 output_rel_path = os.path.join('assets', 'scripts', os.path.basename(rel_path)).replace('\\', '/')
                         
                         # 构建完整的输出路径
@@ -501,17 +562,31 @@ class ResourceProcessor:
         
         logger().debug(f"处理资源: {rel_path}, 类型: {mime_type}, 类别: {resource_category}")
         
-        # 资源输出路径 - 确保图片资源路径与原工程一致
-        # 如果 rel_path 已经包含 assets/ 前缀或本身就是 assets，需要移除它以避免嵌套
+        # 资源输出路径 - 优化：将模块资源直接输出到模块目录，而不是assets目录下
+        # 例如：assets/fhpoker/prefabs/view/FHLKSingleBillView.prefab -> fhpoker/prefabs/view/FHLKSingleBillView.prefab
+        # 例如：assets/scripts/libs/IMJSBridge.502b9.js -> assets/scripts/libs/IMJSBridge.502b9.js（脚本库保持原结构）
         rel_path_normalized = rel_path.replace('\\', '/')
         if rel_path_normalized.startswith('assets/'):
-            # 移除 assets/ 前缀，因为输出路径下已经有 assets 目录了
+            # 移除 assets/ 前缀
             rel_path_clean = rel_path_normalized[7:]  # 移除 'assets/' 前缀
-            output_path = os.path.join(paths.get('output', ''), 'assets', rel_path_clean)
+            # 检查是否为模块资源（如fhpoker、hall等）
+            path_parts = rel_path_clean.split('/')
+            if len(path_parts) > 0:
+                module_name = path_parts[0]
+                # 检查模块名是否为脚本库目录
+                if module_name == 'scripts':
+                    # 脚本库资源，保持assets/scripts结构
+                    output_path = os.path.join(paths.get('output', ''), 'assets', rel_path_clean)
+                else:
+                    # 模块资源，直接输出到模块目录
+                    output_path = os.path.join(paths.get('output', ''), rel_path_clean)
+            else:
+                output_path = os.path.join(paths.get('output', ''), 'assets', rel_path_clean)
         elif rel_path_normalized == 'assets':
             # 如果 rel_path 本身就是 'assets'，输出到 assets 目录根
             output_path = os.path.join(paths.get('output', ''), 'assets')
         else:
+            # 其他情况，保持原结构
             output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
         
         if resource_category == 'image':
@@ -535,7 +610,7 @@ class ResourceProcessor:
                         # 期望输出：<module>/textures/image/<category>/<filename>.png
                         original_path = mapping['original_path']
                         new_rel_path = os.path.join(module_name, original_path) + '.png'
-                        output_path = os.path.join(paths.get('output', ''), 'assets', new_rel_path)
+                        output_path = os.path.join(paths.get('output', ''), new_rel_path)
                         logger().info(f"还原图片路径：{rel_path} -> {new_rel_path}")
                         break
                 else:
@@ -546,12 +621,11 @@ class ResourceProcessor:
                     
                     # 直接使用模块名+textures/image结构
                     new_rel_path = os.path.join(module_name, 'textures', 'image', uuid_part + '.png')
-                    output_path = os.path.join(paths.get('output', ''), 'assets', new_rel_path)
+                    output_path = os.path.join(paths.get('output', ''), new_rel_path)
                     logger().info(f"直接生成图片路径：{rel_path} -> {new_rel_path}")
             else:
-                # 非native目录下的图片，使用默认处理
-                output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
-                logger().debug(f"非native目录图片，使用默认路径：{output_path}")
+                # 非native目录下的图片，使用前面计算好的output_path
+                logger().debug(f"非native目录图片，使用已计算路径：{output_path}")
         
         # 检查是否为编译后的资源配置文件或JS文件，如果是则跳过
         # 但保留原始脚本文件（.ts 和不在编译后文件列表中的 .js）
@@ -868,8 +942,8 @@ class ResourceProcessor:
                     except Exception as e:
                         logger().warn(f"读取Prefab资源 {actual_source_path} 失败，使用默认结构: {e}")
                 
-                # 创建Prefab文件路径，确保不包含重复的assets目录
-                prefab_file_path = os.path.join(output_assets_path, clean_prefab_path + '.prefab')
+                # 创建Prefab文件路径，输出到模块目录而不是assets目录
+                prefab_file_path = os.path.join(paths.get('output', ''), clean_prefab_path + '.prefab')
                 
                 # 确保目录存在
                 os.makedirs(os.path.dirname(prefab_file_path), exist_ok=True)
@@ -1034,8 +1108,8 @@ class ResourceProcessor:
                     except Exception as e:
                         logger().warn(f"读取Scene资源 {actual_source_path} 失败，使用默认结构: {e}")
                 
-                # 创建Scene文件路径
-                scene_file_path = os.path.join(output_assets_path, scene_path + '.fire')
+                # 创建Scene文件路径，输出到模块目录而不是assets目录
+                scene_file_path = os.path.join(paths.get('output', ''), scene_path + '.fire')
                 
                 # 确保目录存在
                 os.makedirs(os.path.dirname(scene_file_path), exist_ok=True)
@@ -1142,8 +1216,8 @@ class ResourceProcessor:
         import json
         import uuid as uuid_module
         
-        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
-        lobby_scene_path = os.path.join(output_assets_path, 'hall', 'LobbyScene.fire')
+        # 大厅场景文件输出到hall模块目录，而不是assets目录下
+        lobby_scene_path = os.path.join(paths.get('output', ''), 'hall', 'LobbyScene.fire')
         
         # 检查文件是否已存在
         if os.path.exists(lobby_scene_path):
