@@ -263,8 +263,37 @@ class ResourceProcessor:
         
         # 处理每个资源目录
         for valid_asset_path in valid_asset_paths:
-            # 遍历资源目录，处理文件
-            for root, _, files in os.walk(valid_asset_path):
+            # 1. 获取模块名称
+            # 从路径中提取模块名称，例如从 'C:/.../assets/fhpoker' 中提取 'fhpoker'
+            asset_path_parts = valid_asset_path.split(os.sep)
+            module_name = None
+            for i, part in enumerate(asset_path_parts):
+                if part == 'assets' and i + 1 < len(asset_path_parts):
+                    module_name = asset_path_parts[i + 1]
+                    break
+            
+            if not module_name:
+                # 如果没有找到assets目录，直接使用最后一个目录作为模块名
+                module_name = os.path.basename(valid_asset_path)
+            
+            logger().debug(f"处理模块: {module_name}, 资源路径: {valid_asset_path}")
+            
+            # 记录资源目录下的子目录和文件数量，用于调试
+            try:
+                items = os.listdir(valid_asset_path)
+                dirs_count = sum(os.path.isdir(os.path.join(valid_asset_path, item)) for item in items)
+                files_count = len(items) - dirs_count
+                logger().debug(f"资源目录内容: {dirs_count} 个目录, {files_count} 个文件")
+                logger().debug(f"子目录列表: {[item for item in items if os.path.isdir(os.path.join(valid_asset_path, item))]}")
+            except Exception as e:
+                logger().debug(f"无法列出资源目录内容: {e}")
+            
+            # 2. 遍历原工程的目录结构，为实际存在的目录创建对应目录
+            for root, dirs, files in os.walk(valid_asset_path):
+                # 为当前目录创建对应的输出目录
+                rel_dir = os.path.relpath(root, valid_asset_path)
+                output_dir = os.path.join(output_assets_path, module_name, rel_dir)
+                os.makedirs(output_dir, exist_ok=True)
                 for file in files:
                     # 跳过编译后的文件
                     if (file.startswith('config.') and file.endswith('.json')) or \
@@ -468,6 +497,7 @@ class ResourceProcessor:
             
             # 文本类型
             '.js': 'text',
+            '.ts': 'text',
             '.json': 'json',
             '.xml': 'xml',
             '.css': 'text',
