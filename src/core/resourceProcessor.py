@@ -271,16 +271,24 @@ class ResourceProcessor:
             # 从路径中提取模块名称，例如从 'C:/.../assets/fhpoker' 中提取 'fhpoker'
             asset_path_parts = valid_asset_path.split(os.sep)
             module_name = None
+            is_assets_dir = 'assets' in asset_path_parts
+            
+            # 遍历路径部分，查找模块名
             for i, part in enumerate(asset_path_parts):
                 if part == 'assets' and i + 1 < len(asset_path_parts):
                     module_name = asset_path_parts[i + 1]
                     break
             
             if not module_name:
-                # 如果没有找到assets目录，直接使用最后一个目录作为模块名
-                module_name = os.path.basename(valid_asset_path)
+                # 如果没有找到模块名：
+                # - 如果路径是assets目录本身，不使用模块名
+                # - 否则使用最后一个目录作为模块名
+                if is_assets_dir and os.path.basename(valid_asset_path) == 'assets':
+                    module_name = ''  # 空字符串表示直接使用assets目录
+                else:
+                    module_name = os.path.basename(valid_asset_path)
             
-            logger().debug(f"处理模块: {module_name}, 资源路径: {valid_asset_path}")
+            logger().debug(f"处理模块: {module_name or '(空，直接使用assets)'}, 资源路径: {valid_asset_path}")
             
             # 记录资源目录下的子目录和文件数量，用于调试
             try:
@@ -315,13 +323,16 @@ class ResourceProcessor:
                     elif rel_dir_clean_normalized.startswith('assets/'):
                         rel_dir_clean = rel_dir_clean_normalized[7:].replace('/', os.sep)
                 
-                # 修复：当module_name为'assets'时，避免创建重复的assets目录
-                if module_name == 'assets':
+                # 确定输出目录：
+                # 1. 如果 module_name 为空（assets目录本身），直接使用assets目录
+                # 2. 如果 module_name 为 'assets'，避免创建重复的assets目录
+                # 3. 其他情况，使用 module_name 作为子目录
+                if not module_name or module_name == 'assets':
                     if rel_dir_clean == '.':
-                        # assets目录本身的文件应该直接放在output_assets_path下
+                        # 直接使用assets目录
                         output_dir = output_assets_path
                     else:
-                        # 子目录应该放在output_assets_path/rel_dir下
+                        # 子目录直接放在assets目录下
                         output_dir = os.path.join(output_assets_path, rel_dir_clean)
                 else:
                     # 如果 module_name 不是 'assets'，但 rel_dir_clean 是 'assets'，需要特殊处理
@@ -816,6 +827,13 @@ class ResourceProcessor:
         # 遍历所有Prefab资源
         for prefab_path, info in prefab_info.items():
             try:
+                # 清理prefab_path，确保它不包含重复的assets/前缀
+                prefab_path_normalized = prefab_path.replace('\\', '/')
+                if prefab_path_normalized.startswith('assets/'):
+                    clean_prefab_path = prefab_path_normalized[7:]  # 移除 'assets/' 前缀
+                else:
+                    clean_prefab_path = prefab_path
+                
                 # 构建编译后的资源文件路径（可能是带UUID的JSON文件）
                 # 尝试多种可能的路径格式
                 possible_source_paths = [
@@ -850,8 +868,8 @@ class ResourceProcessor:
                     except Exception as e:
                         logger().warn(f"读取Prefab资源 {actual_source_path} 失败，使用默认结构: {e}")
                 
-                # 创建Prefab文件路径
-                prefab_file_path = os.path.join(output_assets_path, prefab_path + '.prefab')
+                # 创建Prefab文件路径，确保不包含重复的assets目录
+                prefab_file_path = os.path.join(output_assets_path, clean_prefab_path + '.prefab')
                 
                 # 确保目录存在
                 os.makedirs(os.path.dirname(prefab_file_path), exist_ok=True)
