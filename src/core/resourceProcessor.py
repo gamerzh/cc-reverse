@@ -67,13 +67,17 @@ class ResourceProcessor:
         
         logger().debug(f"资源处理: paths={paths}")
         
-        # 尝试多种资源目录位置，包括编译后的资源结构
+        # 尝试多种资源位置目录，包括编译后的资源结构
         asset_paths = [
             paths.get('res', ''),  # 默认检测到的资源路径
             os.path.join(paths.get('source', ''), 'assets'),  # 直接在项目根目录下的assets
             os.path.join(paths.get('source', ''), 'res'),  # 直接在项目根目录下的res
             os.path.join(paths.get('source', ''), 'src', 'assets'),  # src目录下的assets
-            os.path.join(paths.get('source', ''), 'src', 'res')  # src目录下的res
+            os.path.join(paths.get('source', ''), 'src', 'res'),  # src目录下的res
+            # 添加更多可能的路径，特别是对于包含原始TypeScript文件的目录
+            os.path.join(paths.get('source', ''), 'assets', 'res'),  # assets/res目录
+            os.path.join(paths.get('source', ''), 'assets', 'scripts'),  # assets/scripts目录
+            paths.get('source', '')  # 直接使用源目录
         ]
         
         # 找到所有存在的资源目录

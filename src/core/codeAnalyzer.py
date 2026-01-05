@@ -389,7 +389,7 @@ class CodeAnalyzer:
         # 生成每个组件的脚本文件
         for component in self.analyzed_data["components"]:
             script_content = self._generateScriptContent(component)
-            script_name = component.get("name", "Unknown") + ".js"
+            script_name = component.get("name", "Unknown") + ".ts"
             script_path = os.path.join(scripts_dir, script_name)
             
             fileManager.writeFile(script_path, script_content)

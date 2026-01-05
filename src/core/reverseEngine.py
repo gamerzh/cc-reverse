@@ -166,18 +166,18 @@ def reverseProject(options):
         resource_stats = resourceProcessor.getResourceStats()
         logger().success(f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
         
-        # 生成脚本文件
+        # 生成脚本文件（暂时禁用，让资源处理器复制原始文件）
         if codeAnalyzer.analyzed_data.get('components', []):
-            logger().info(f'生成 {len(codeAnalyzer.analyzed_data.get("components", []))} 个脚本文件...')
-            codeAnalyzer.generateScripts(global_paths.get('output', ''))
-            # 验证脚本文件是否生成
+            logger().info(f'检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件，脚本文件将由资源处理器复制原始文件...')
+            # codeAnalyzer.generateScripts(global_paths.get('output', ''))  # 暂时禁用
+            # 验证脚本文件是否通过资源处理器生成
             scripts_dir = os.path.join(global_paths.get('output', ''), 'assets', 'scripts')
             if os.path.exists(scripts_dir):
-                scripts = [f for f in os.listdir(scripts_dir) if f.endswith('.js')]
-                logger().info(f'脚本目录已创建，包含 {len(scripts)} 个脚本文件')
+                scripts = [f for f in os.listdir(scripts_dir) if f.endswith('.ts')]
+                logger().info(f'脚本目录已创建，包含 {len(scripts)} 个TypeScript文件')
                 if scripts:
-                    logger().info(f'脚本文件列表: {scripts[:10]}')
-            logger().success('脚本文件生成完成')
+                    logger().info(f'TypeScript文件列表: {scripts[:10]}')
+            logger().info('脚本文件将由资源处理器处理')
         else:
             logger().warn('未检测到任何组件，跳过脚本生成')
         
