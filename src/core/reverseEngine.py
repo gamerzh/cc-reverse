@@ -10,6 +10,7 @@ import json
 from utils.fileManager import fileManager
 from utils.logger import logger
 from config.configLoader import loadConfig
+from core.bundleProcessor import bundleProcessor
 
 global_config = {}
 global_verbose = False
@@ -160,11 +161,33 @@ def reverseProject(options):
             codeAnalyzer.analyzeMultipleFiles(js_files)
             logger().success(f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
         
+        # 查找并处理Webpack bundle文件
+        logger().info('开始查找并处理Webpack bundle文件...')
+        index_files = []  # 初始化index_files列表，用于收集所有要分析的脚本文件
+        bundle_files = find_bundle_files(global_paths['res'])
+        if bundle_files:
+            logger().info(f'找到 {len(bundle_files)} 个可能的bundle文件')
+            processed_bundles = process_bundle_files(bundle_files, global_paths['output'], global_paths['res'])
+            # 将处理生成的TypeScript文件添加到分析列表
+            for bundle_result in processed_bundles:
+                if bundle_result.get('success'):
+                    output_dir = bundle_result.get('output_dir')
+                    if output_dir:
+                        # 查找typescript目录
+                        ts_dir = os.path.join(output_dir, 'typescript')
+                        if os.path.exists(ts_dir):
+                            ts_files = [os.path.join(ts_dir, f) for f in os.listdir(ts_dir) if f.endswith('.ts')]
+                            if ts_files:
+                                index_files.extend(ts_files)
+                                logger().debug(f"添加 {len(ts_files)} 个TypeScript文件到分析列表")
+        else:
+            logger().info('未找到Webpack bundle文件')
+        
         # 查找并分析所有index.*.js文件（包含编译后的游戏逻辑）
         logger().info('开始查找并分析index.*.js文件...')
         import glob
         source_path = global_paths.get('source', '')
-        index_files = []
+        # index_files = []  # 已经在前面的bundle处理中初始化
         # 查找assets目录下的所有index.*.js文件
         index_patterns = [
             os.path.join(source_path, 'assets', '*', 'index.*.js'),
@@ -638,5 +661,88 @@ def extractScriptFiles(paths, settings):
     
     logger().info(f'脚本文件提取完成: 成功 {copied_count} 个, 缺失 {missing_count} 个')
     
-    # 如果从编译后的代码中提取的组件，也生成脚本文件
+ #    如果从编译后的代码中提取的组件，也生成脚本文件
     # 这部分逻辑在reverseProject中处理
+
+def find_bundle_files(res_path):
+    """
+    查找资源目录中可能的Webpack bundle文件
+    
+    Args:
+        res_path (str): 资源目录路径
+    
+    Returns:
+        list: bundle文件路径列表
+    """
+    import glob
+    import os
+    
+    bundle_files = []
+    
+    # 查找所有.js文件（排除index.*.js，因为它们是常规脚本）
+    js_patterns = [
+        os.path.join(res_path, '**', '*.js'),
+        os.path.join(res_path, '**', '*', '*.js'),
+    ]
+    
+    for pattern in js_patterns:
+        matches = glob.glob(pattern, recursive=True)
+        for match in matches:
+            # 排除index.*.js文件（这些是常规脚本，由其他流程处理）
+            if 'index.' in os.path.basename(match):
+                continue
+            # 排除script目录中的.js文件（这些可能是已提取的模块）
+            if 'script' in match.lower() and os.path.dirname(match).lower().endswith('script'):
+                continue
+            bundle_files.append(match)
+    
+    # 去重
+    bundle_files = list(set(bundle_files))
+    
+    # 按文件大小排序（大的文件可能是bundle）
+    bundle_files.sort(key=lambda x: os.path.getsize(x) if os.path.exists(x) else 0, reverse=True)
+    
+    return bundle_files
+
+def process_bundle_files(bundle_files, output_base_dir, res_path):
+    """
+    处理bundle文件列表
+    
+    Args:
+        bundle_files (list): bundle文件路径列表
+        output_base_dir (str): 输出基础目录
+        res_path (str): 资源目录路径，用于计算相对路径
+    
+    Returns:
+        list: 处理结果列表
+    """
+    from utils.logger import logger
+    
+    results = []
+    
+    for bundle_file in bundle_files:
+        try:
+            # 检查是否为Webpack bundle
+            if bundleProcessor.is_webpack_bundle(bundle_file):
+                logger().info(f"处理Webpack bundle: {bundle_file}")
+                
+                # 处理bundle文件
+                result = bundleProcessor.process_bundle_file(bundle_file, output_base_dir, res_path)
+                result['file'] = bundle_file
+                results.append(result)
+                
+                if result.get('success'):
+                    logger().success(f"成功处理bundle: {os.path.basename(bundle_file)} (提取 {result.get('extracted_modules', 0)} 个模块, 转换 {result.get('converted_classes', 0)} 个类)")
+                else:
+                    logger().error(f"处理bundle失败: {os.path.basename(bundle_file)}: {result.get('error', '未知错误')}")
+            else:
+                logger().debug(f"跳过非Webpack bundle文件: {bundle_file}")
+        except Exception as e:
+            logger().error(f"处理bundle文件时出错 {bundle_file}: {e}")
+            results.append({
+                'file': bundle_file,
+                'success': False,
+                'error': str(e)
+            })
+    
+    return results
