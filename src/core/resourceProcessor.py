@@ -296,7 +296,18 @@ class ResourceProcessor:
             for root, dirs, files in os.walk(valid_asset_path):
                 # 为当前目录创建对应的输出目录
                 rel_dir = os.path.relpath(root, valid_asset_path)
-                output_dir = os.path.join(output_assets_path, module_name, rel_dir)
+                
+                # 修复：当module_name为'assets'时，避免创建重复的assets目录
+                if module_name == 'assets':
+                    if rel_dir == '.':
+                        # assets目录本身的文件应该直接放在output_assets_path下
+                        output_dir = output_assets_path
+                    else:
+                        # 子目录应该放在output_assets_path/rel_dir下
+                        output_dir = os.path.join(output_assets_path, rel_dir)
+                else:
+                    output_dir = os.path.join(output_assets_path, module_name, rel_dir)
+                
                 os.makedirs(output_dir, exist_ok=True)
                 for file in files:
                     # 跳过编译后的文件
