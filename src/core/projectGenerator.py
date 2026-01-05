@@ -61,18 +61,12 @@ class ProjectGenerator:
         Args:
             paths (dict): 路径字典
         """
-        # 创建主要目录结构
+        # 只创建主要目录结构，不创建资源子目录
         directories = [
             os.path.join(paths.get('output', ''), 'assets'),
             os.path.join(paths.get('output', ''), 'settings'),
             os.path.join(paths.get('output', ''), 'library'),
-            os.path.join(paths.get('output', ''), 'temp'),
-            os.path.join(paths.get('output', ''), 'assets', 'scripts'),
-            os.path.join(paths.get('output', ''), 'assets', 'resources'),
-            os.path.join(paths.get('output', ''), 'assets', 'scenes'),
-            os.path.join(paths.get('output', ''), 'assets', 'textures'),
-            os.path.join(paths.get('output', ''), 'assets', 'audio'),
-            os.path.join(paths.get('output', ''), 'assets', 'fonts')
+            os.path.join(paths.get('output', ''), 'temp')
         ]
         
         for directory in directories:
@@ -337,90 +331,9 @@ class ProjectGenerator:
         from utils.fileManager import fileManager
         from utils.logger import logger
         
-        # 创建scenes目录
-        scenes_dir = os.path.join(paths.get('output', ''), 'assets', 'scenes')
-        os.makedirs(scenes_dir, exist_ok=True)
-        
-        # 生成默认场景内容
-        scene_content = {
-            "compressionType": 0,
-            "content": {
-                "__type__": "cc.SceneAsset",
-                "scene": {
-                    "__id__": 1
-                }
-            },
-            "subMetas": {
-                "scene": {
-                    "__type__": "cc.Prefab",
-                    "data": {
-                        "__id__": 2
-                    }
-                }
-            }
-        }
-        
-        # 简化的场景数据
-        scene_data = {
-            "_name": "Default",
-            "_objFlags": 0,
-            "_components": [
-                {
-                    "__type__": "cc.Canvas",
-                    "_name": "Canvas",
-                    "_objFlags": 0,
-                    "node": {
-                        "__id__": 3
-                    },
-                    "designResolution": {
-                        "width": 960,
-                        "height": 640
-                    },
-                    "fitWidth": True,
-                    "fitHeight": True
-                }
-            ],
-            "_active": True,
-            "_children": [
-                {
-                    "_name": "Canvas",
-                    "_objFlags": 0,
-                    "_components": [
-                        {
-                            "__type__": "cc.TransformComponent",
-                            "_name": "Transform",
-                            "_objFlags": 0,
-                            "localPosition": {
-                                "x": 0,
-                                "y": 0,
-                                "z": 0
-                            },
-                            "localRotation": {
-                                "x": 0,
-                                "y": 0,
-                                "z": 0,
-                                "w": 1
-                            },
-                            "localScale": {
-                                "x": 1,
-                                "y": 1,
-                                "z": 1
-                            }
-                        },
-                        {
-                            "__id__": 4
-                        }
-                    ],
-                    "_active": True,
-                    "_children": []
-                }
-            ]
-        }
-        
-        scene_path = os.path.join(scenes_dir, 'Default.scene')
-        fileManager.writeFile(scene_path, json.dumps(scene_data, indent=2, ensure_ascii=False))
-        self.generated_files.append(scene_path)
-        logger().info(f"生成默认场景文件: {scene_path}")
+        # 不自动创建scenes目录，只在需要时创建
+        # 场景文件会在资源处理过程中生成
+        logger().info("跳过默认场景文件生成，场景文件将在资源处理过程中生成")
     
     def getGeneratedFiles(self):
         """

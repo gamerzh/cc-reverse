@@ -263,44 +263,7 @@ class ResourceProcessor:
         
         # 处理每个资源目录
         for valid_asset_path in valid_asset_paths:
-            # 获取模块名称（assets目录下的子目录）
-            # 从路径中提取模块名称，例如从 'C:/.../assets/fhpoker' 中提取 'fhpoker'
-            asset_path_parts = valid_asset_path.split(os.sep)
-            module_name = None
-            for i, part in enumerate(asset_path_parts):
-                if part == 'assets' and i + 1 < len(asset_path_parts):
-                    module_name = asset_path_parts[i + 1]
-                    break
-            
-            if not module_name:
-                # 如果没有找到assets目录，直接使用最后一个目录作为模块名
-                module_name = os.path.basename(valid_asset_path)
-            
-            logger().debug(f"处理模块: {module_name}, 资源路径: {valid_asset_path}")
-            
-            # 1. 先创建模块目录
-            module_output_path = os.path.join(output_assets_path, module_name)
-            os.makedirs(module_output_path, exist_ok=True)
-            
-            # 2. 从config.json中提取原始目录结构
-            original_dirs = {
-                'animation',
-                'effect', 
-                'prefabs',
-                'scenes',
-                'script',
-                'sound',
-                'textures'
-            }
-            
-            # 3. 创建模块的原始目录结构
-            for dir_name in original_dirs:
-                dir_path = os.path.join(module_output_path, dir_name)
-                if not os.path.exists(dir_path):
-                    os.makedirs(dir_path, exist_ok=True)
-                    logger().info(f"创建原始目录: {dir_path}")
-            
-            # 4. 遍历资源目录，处理文件
+            # 遍历资源目录，处理文件
             for root, _, files in os.walk(valid_asset_path):
                 for file in files:
                     # 跳过编译后的文件
