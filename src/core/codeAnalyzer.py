@@ -80,6 +80,12 @@ class CodeAnalyzer:
             r'window\.cc\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)',
             # 压缩后的代码模式 (function(a,b){return a.Class({...})})
             r'\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)',
+            # 变量.Class定义，如 a.Class({...})
+            r'\w\.Class\s*\(\s*\{([\s\S]*?)\}\s*\)',
+            # 变量["Class"]定义，如 a["Class"]({...})
+            r'\w\["Class"\]\s*\(\s*\{([\s\S]*?)\}\s*\)',
+            # 变量['Class']定义，如 a['Class']({...})
+            r"\w\['Class'\]\s*\(\s*\{([\s\S]*?)\}\s*\)",
         ]
         
         class_matches = []

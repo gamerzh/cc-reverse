@@ -160,6 +160,35 @@ def reverseProject(options):
             codeAnalyzer.analyzeMultipleFiles(js_files)
             logger().success(f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
         
+        # 查找并分析所有index.*.js文件（包含编译后的游戏逻辑）
+        logger().info('开始查找并分析index.*.js文件...')
+        import glob
+        source_path = global_paths.get('source', '')
+        index_files = []
+        # 查找assets目录下的所有index.*.js文件
+        index_patterns = [
+            os.path.join(source_path, 'assets', '*', 'index.*.js'),
+            os.path.join(source_path, 'assets', '*', '*', 'index.*.js'),
+            os.path.join(source_path, 'assets', '*', '*', '*', 'index.*.js'),
+        ]
+        for pattern in index_patterns:
+            matches = glob.glob(pattern)
+            if matches:
+                index_files.extend(matches)
+                logger().debug(f'模式 {pattern} 匹配到 {len(matches)} 个文件')
+        
+        # 去重
+        index_files = list(set(index_files))
+        logger().info(f'找到 {len(index_files)} 个index.*.js文件')
+        
+        # 分析这些文件
+        if index_files:
+            logger().info(f'开始分析index.*.js文件...')
+            codeAnalyzer.analyzeMultipleFiles(index_files)
+            logger().success(f'index.*.js文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
+        else:
+            logger().warn('未找到任何index.*.js文件')
+        
         # 处理资源
         logger().info('开始处理资源...')
         resourceProcessor.processResources(global_paths)
@@ -173,17 +202,10 @@ def reverseProject(options):
         
         # 生成脚本文件（如果需要从编译后的代码中提取组件）
         if codeAnalyzer.analyzed_data.get('components', []):
-            logger().info(f'检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
-            # 验证脚本文件是否已提取
-            scripts_dir = os.path.join(global_paths.get('output', ''), 'assets', 'scripts')
-            if os.path.exists(scripts_dir):
-                scripts = [f for f in os.listdir(scripts_dir) if f.endswith(('.ts', '.js'))]
-                logger().info(f'脚本目录已创建，包含 {len(scripts)} 个脚本文件')
-                if scripts:
-                    logger().info(f'脚本文件列表: {scripts[:10]}')
-            else:
-                logger().warn('脚本目录不存在，尝试生成脚本文件...')
-                codeAnalyzer.generateScripts(global_paths.get('output', ''))
+            components_count = len(codeAnalyzer.analyzed_data.get('components', []))
+            logger().info(f'检测到 {components_count} 个组件，开始生成脚本文件...')
+            codeAnalyzer.generateScripts(global_paths.get('output', ''))
+            logger().success(f'脚本文件生成完成，共生成 {components_count} 个脚本文件')
         else:
             logger().warn('未检测到任何组件')
         
