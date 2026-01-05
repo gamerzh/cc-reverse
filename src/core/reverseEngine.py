@@ -167,6 +167,10 @@ def reverseProject(options):
         bundle_files = find_bundle_files(global_paths['res'])
         if bundle_files:
             logger().info(f'找到 {len(bundle_files)} 个可能的bundle文件')
+            for i, bf in enumerate(bundle_files[:5]):  # 只显示前5个
+                logger().debug(f'  [{i+1}] {bf}')
+            if len(bundle_files) > 5:
+                logger().debug(f'  ... 还有 {len(bundle_files)-5} 个文件')
             processed_bundles = process_bundle_files(bundle_files, global_paths['output'], global_paths['res'])
             # 将处理生成的TypeScript文件添加到分析列表
             for bundle_result in processed_bundles:
@@ -688,9 +692,6 @@ def find_bundle_files(res_path):
     for pattern in js_patterns:
         matches = glob.glob(pattern, recursive=True)
         for match in matches:
-            # 排除index.*.js文件（这些是常规脚本，由其他流程处理）
-            if 'index.' in os.path.basename(match):
-                continue
             # 排除script目录中的.js文件（这些可能是已提取的模块）
             if 'script' in match.lower() and os.path.dirname(match).lower().endswith('script'):
                 continue

@@ -391,6 +391,11 @@ class BundleProcessor:
         # 在输出目录中创建对应的bundle目录结构
         rel_path = os.path.relpath(bundle_dir, res_path)
         bundle_output_dir = os.path.join(output_base_dir, rel_path)
+        logger().debug(f"bundle_dir: {bundle_dir}")
+        logger().debug(f"res_path: {res_path}")
+        logger().debug(f"rel_path: {rel_path}")
+        logger().debug(f"output_base_dir: {output_base_dir}")
+        logger().debug(f"bundle_output_dir: {bundle_output_dir}")
         
         # 提取模块
         extraction_result = self.extract_bundle_modules(bundle_path, bundle_output_dir)
