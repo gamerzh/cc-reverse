@@ -166,20 +166,26 @@ def reverseProject(options):
         resource_stats = resourceProcessor.getResourceStats()
         logger().success(f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
         
-        # 生成脚本文件（暂时禁用，让资源处理器复制原始文件）
+        # 提取脚本文件
+        logger().info('开始提取脚本文件...')
+        extractScriptFiles(global_paths, global_settings)
+        logger().success('脚本文件提取完成')
+        
+        # 生成脚本文件（如果需要从编译后的代码中提取组件）
         if codeAnalyzer.analyzed_data.get('components', []):
-            logger().info(f'检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件，脚本文件将由资源处理器复制原始文件...')
-            # codeAnalyzer.generateScripts(global_paths.get('output', ''))  # 暂时禁用
-            # 验证脚本文件是否通过资源处理器生成
+            logger().info(f'检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
+            # 验证脚本文件是否已提取
             scripts_dir = os.path.join(global_paths.get('output', ''), 'assets', 'scripts')
             if os.path.exists(scripts_dir):
-                scripts = [f for f in os.listdir(scripts_dir) if f.endswith('.ts')]
-                logger().info(f'脚本目录已创建，包含 {len(scripts)} 个TypeScript文件')
+                scripts = [f for f in os.listdir(scripts_dir) if f.endswith(('.ts', '.js'))]
+                logger().info(f'脚本目录已创建，包含 {len(scripts)} 个脚本文件')
                 if scripts:
-                    logger().info(f'TypeScript文件列表: {scripts[:10]}')
-            logger().info('脚本文件将由资源处理器处理')
+                    logger().info(f'脚本文件列表: {scripts[:10]}')
+            else:
+                logger().warn('脚本目录不存在，尝试生成脚本文件...')
+                codeAnalyzer.generateScripts(global_paths.get('output', ''))
         else:
-            logger().warn('未检测到任何组件，跳过脚本生成')
+            logger().warn('未检测到任何组件')
         
         # 生成项目文件
         logger().info('生成项目配置文件...')
@@ -519,3 +525,96 @@ def parseSettings(settings):
         logger().error(f'解析设置文件时出错: {e}')
         logger().warn('使用默认设置')
         global_settings = {'CCSettings': {}}
+
+def extractScriptFiles(paths, settings):
+    """
+    从 jsList 中提取脚本文件并复制到输出目录
+    
+    Args:
+        paths (dict): 路径字典，包含source、output等路径
+        settings (dict): 项目设置，包含CCSettings和jsList
+    """
+    from utils.logger import logger
+    from utils.fileManager import fileManager
+    import shutil
+    
+    js_list = settings.get('CCSettings', {}).get('jsList', [])
+    if not js_list:
+        logger().warn('jsList为空，无法提取脚本文件')
+        return
+    
+    source_path = paths.get('source', '')
+    output_path = paths.get('output', '')
+    
+    if not source_path or not output_path:
+        logger().error('缺少必要的路径信息')
+        return
+    
+    logger().info(f'开始从jsList中提取 {len(js_list)} 个脚本文件...')
+    
+    copied_count = 0
+    missing_count = 0
+    
+    for js_file_path in js_list:
+        # 移除assets/前缀（如果存在）
+        if js_file_path.startswith('assets/'):
+            rel_path = js_file_path[7:]  # 移除 'assets/' 前缀
+        else:
+            rel_path = js_file_path
+        
+        # 构建源文件路径（尝试多种可能的位置）
+        possible_source_paths = [
+            os.path.join(source_path, js_file_path),  # 完整路径
+            os.path.join(source_path, rel_path),  # 移除assets前缀后的路径
+            os.path.join(source_path, 'src', js_file_path),  # 在src目录下
+            os.path.join(source_path, 'src', rel_path),  # 在src目录下，移除assets前缀
+            os.path.join(source_path, 'assets', rel_path),  # 在assets目录下
+        ]
+        
+        source_file = None
+        for possible_path in possible_source_paths:
+            if os.path.exists(possible_path) and os.path.isfile(possible_path):
+                source_file = possible_path
+                break
+        
+        if not source_file:
+            logger().debug(f'未找到脚本文件: {js_file_path}')
+            missing_count += 1
+            continue
+        
+        # 构建输出路径：保持原始路径结构
+        # 如果js_file_path是 'assets/scripts/module/script.ts'
+        # 输出路径应该是 'output/assets/scripts/module/script.ts'
+        # 如果js_file_path是 'scripts/module/script.ts'
+        # 输出路径应该是 'output/assets/scripts/module/script.ts'
+        # 注意：output_path 已经是输出目录，projectGenerator 会在其下创建 assets 目录
+        # 所以如果 js_file_path 包含 'assets/'，需要移除它以避免嵌套
+        
+        if js_file_path.startswith('assets/'):
+            # 移除 assets/ 前缀，因为输出目录下已经有 assets 目录了
+            path_without_assets = js_file_path[7:]  # 移除 'assets/' 前缀
+            output_file_path = os.path.join(output_path, 'assets', path_without_assets)
+        elif js_file_path.startswith('scripts/'):
+            # 如果以scripts/开头，添加到assets/下
+            output_file_path = os.path.join(output_path, 'assets', js_file_path)
+        else:
+            # 如果路径不以assets/或scripts/开头，假设它在assets/scripts下
+            output_file_path = os.path.join(output_path, 'assets', 'scripts', rel_path)
+        
+        # 确保输出目录存在
+        output_dir = os.path.dirname(output_file_path)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        try:
+            # 复制文件
+            shutil.copy2(source_file, output_file_path)
+            logger().debug(f'复制脚本文件: {js_file_path} -> {output_file_path}')
+            copied_count += 1
+        except Exception as e:
+            logger().error(f'复制脚本文件失败 {js_file_path}: {e}')
+            missing_count += 1
+    
+    logger().info(f'脚本文件提取完成: 成功 {copied_count} 个, 缺失 {missing_count} 个')
+    
+    # 如果从编译后的代码中提取的组件，也生成脚本文件
+    # 这部分逻辑在reverseProject中处理

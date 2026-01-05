@@ -297,22 +297,61 @@ class ResourceProcessor:
                 # 为当前目录创建对应的输出目录
                 rel_dir = os.path.relpath(root, valid_asset_path)
                 
+                # 如果 rel_dir 包含 assets/ 前缀，需要移除它以避免嵌套
+                rel_dir_normalized = rel_dir.replace('\\', '/')
+                if rel_dir_normalized.startswith('assets/'):
+                    rel_dir_clean = rel_dir_normalized[7:]  # 移除 'assets/' 前缀
+                    rel_dir_clean = rel_dir_clean.replace('/', os.sep)  # 恢复系统路径分隔符
+                else:
+                    rel_dir_clean = rel_dir
+                
+                # 进一步检查：如果 rel_dir_clean 本身就是 'assets' 或包含 'assets/'，需要移除它
+                # 这发生在源目录结构是 assets/assets/... 的情况下
+                rel_dir_clean_normalized = rel_dir_clean.replace('\\', '/')
+                if rel_dir_clean_normalized == 'assets' or rel_dir_clean_normalized.startswith('assets/'):
+                    # 移除开头的 'assets' 或 'assets/'
+                    if rel_dir_clean_normalized == 'assets':
+                        rel_dir_clean = '.'
+                    elif rel_dir_clean_normalized.startswith('assets/'):
+                        rel_dir_clean = rel_dir_clean_normalized[7:].replace('/', os.sep)
+                
                 # 修复：当module_name为'assets'时，避免创建重复的assets目录
                 if module_name == 'assets':
-                    if rel_dir == '.':
+                    if rel_dir_clean == '.':
                         # assets目录本身的文件应该直接放在output_assets_path下
                         output_dir = output_assets_path
                     else:
                         # 子目录应该放在output_assets_path/rel_dir下
-                        output_dir = os.path.join(output_assets_path, rel_dir)
+                        output_dir = os.path.join(output_assets_path, rel_dir_clean)
                 else:
-                    output_dir = os.path.join(output_assets_path, module_name, rel_dir)
+                    # 如果 module_name 不是 'assets'，但 rel_dir_clean 是 'assets'，需要特殊处理
+                    if rel_dir_clean == 'assets' or rel_dir_clean.startswith('assets' + os.sep):
+                        # 如果子目录名是 'assets'，直接放在 output_assets_path 下，不要添加 module_name
+                        if rel_dir_clean == 'assets':
+                            output_dir = output_assets_path
+                        else:
+                            # assets/xxx -> output/assets/xxx
+                            output_dir = os.path.join(output_assets_path, rel_dir_clean[len('assets' + os.sep):])
+                    else:
+                        output_dir = os.path.join(output_assets_path, module_name, rel_dir_clean)
                 
                 os.makedirs(output_dir, exist_ok=True)
                 for file in files:
-                    # 跳过编译后的文件
-                    if (file.startswith('config.') and file.endswith('.json')) or \
-                       (file.startswith('index.') and file.endswith('.js')):
+                    # 跳过编译后的文件（但保留原始脚本文件）
+                    file_lower = file.lower()
+                    is_compiled_file = (
+                        (file.startswith('config.') and file.endswith('.json')) or
+                        (file.startswith('index.') and file.endswith('.js')) or
+                        (file.startswith('main.') and file.endswith('.js')) or
+                        (file.startswith('settings.') and file.endswith('.js')) or
+                        (file.startswith('project.') and file.endswith('.js')) or
+                        (file.startswith('cocos2d-js') and file.endswith('.js'))
+                    )
+                    
+                    # 检查是否是脚本文件（.ts 或 .js），如果是脚本文件且不是编译后的文件，则保留
+                    is_script_file = file_lower.endswith(('.ts', '.js'))
+                    
+                    if is_compiled_file:
                         logger().debug(f"跳过编译后的文件: {file}")
                         continue
                     
@@ -320,7 +359,77 @@ class ResourceProcessor:
                     # 计算相对于资源目录的路径
                     rel_path = os.path.relpath(file_path, valid_asset_path)
                     
-                    # 处理不同类型的资源
+                    # 如果 rel_path 包含 assets/ 前缀或本身就是 assets，需要清理
+                    rel_path_normalized = rel_path.replace('\\', '/')
+                    if rel_path_normalized.startswith('assets/'):
+                        rel_path = rel_path_normalized[7:].replace('/', os.sep)
+                    elif rel_path == 'assets' or rel_path.startswith('assets' + os.sep):
+                        # 如果 rel_path 本身就是 'assets' 或 'assets/...'，移除它
+                        if rel_path == 'assets':
+                            rel_path = '.'
+                        elif rel_path.startswith('assets' + os.sep):
+                            rel_path = rel_path[len('assets' + os.sep):]
+                    
+                    # 如果是脚本文件，确保输出到正确的目录
+                    if is_script_file:
+                        # 规范化路径分隔符
+                        rel_path_normalized = rel_path.replace('\\', '/')
+                        
+                        # 确定输出相对路径，保持原始目录结构
+                        # 注意：输出路径已经是 output/assets，所以如果 rel_path 包含 assets/，需要移除
+                        if rel_path_normalized.startswith('assets/scripts/'):
+                            # 如果已经是assets/scripts/，移除assets/前缀，只保留scripts/之后的部分
+                            scripts_part = rel_path_normalized[15:]  # 移除 'assets/scripts/' 前缀
+                            output_rel_path = os.path.join('assets', 'scripts', scripts_part).replace('\\', '/')
+                        elif rel_path_normalized.startswith('assets/'):
+                            # 如果以assets/开头但不是scripts，移除assets/前缀
+                            path_without_assets = rel_path_normalized[7:]  # 移除 'assets/' 前缀
+                            output_rel_path = os.path.join('assets', path_without_assets).replace('\\', '/')
+                        elif rel_path_normalized.startswith('scripts/'):
+                            # 如果以scripts/开头，添加到assets/下
+                            output_rel_path = os.path.join('assets', rel_path).replace('\\', '/')
+                        elif 'scripts' in rel_path_normalized:
+                            # 如果路径中包含scripts，尝试提取scripts之后的部分
+                            scripts_index = rel_path_normalized.find('scripts/')
+                            if scripts_index >= 0:
+                                scripts_part = rel_path_normalized[scripts_index:]
+                                output_rel_path = os.path.join('assets', scripts_part).replace('\\', '/')
+                            else:
+                                # 如果找不到scripts/，使用文件名
+                                output_rel_path = os.path.join('assets', 'scripts', os.path.basename(rel_path)).replace('\\', '/')
+                        else:
+                            # 如果不在scripts目录下，移动到assets/scripts，但保持子目录结构
+                            # 尝试从模块名推断路径
+                            path_parts = rel_path.split(os.sep)
+                            if len(path_parts) > 1:
+                                # 有子目录，保持结构
+                                output_rel_path = os.path.join('assets', 'scripts', rel_path).replace('\\', '/')
+                            else:
+                                # 只有文件名，直接放在scripts下
+                                output_rel_path = os.path.join('assets', 'scripts', os.path.basename(rel_path)).replace('\\', '/')
+                        
+                        # 构建完整的输出路径
+                        output_script_path = os.path.join(paths.get('output', ''), output_rel_path.replace('/', os.sep))
+                        output_script_dir = os.path.dirname(output_script_path)
+                        os.makedirs(output_script_dir, exist_ok=True)
+                        
+                        # 复制脚本文件
+                        try:
+                            shutil.copy2(file_path, output_script_path)
+                            logger().debug(f"复制脚本文件: {rel_path} -> {output_rel_path}")
+                            self.processed_resources.append({
+                                'source': file_path,
+                                'target': output_script_path,
+                                'type': 'text/javascript',
+                                'category': 'text',
+                                'relative_path': output_rel_path,
+                                'file_ext': os.path.splitext(file)[1]
+                            })
+                        except Exception as e:
+                            logger().error(f"复制脚本文件失败 {rel_path}: {e}")
+                        continue
+                    
+                    # 处理其他类型的资源
                     self._processResource(file_path, rel_path, valid_asset_path, paths)
         
         logger().info("实际资源文件处理完成")
@@ -382,7 +491,17 @@ class ResourceProcessor:
         logger().debug(f"处理资源: {rel_path}, 类型: {mime_type}, 类别: {resource_category}")
         
         # 资源输出路径 - 确保图片资源路径与原工程一致
-        output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
+        # 如果 rel_path 已经包含 assets/ 前缀或本身就是 assets，需要移除它以避免嵌套
+        rel_path_normalized = rel_path.replace('\\', '/')
+        if rel_path_normalized.startswith('assets/'):
+            # 移除 assets/ 前缀，因为输出路径下已经有 assets 目录了
+            rel_path_clean = rel_path_normalized[7:]  # 移除 'assets/' 前缀
+            output_path = os.path.join(paths.get('output', ''), 'assets', rel_path_clean)
+        elif rel_path_normalized == 'assets':
+            # 如果 rel_path 本身就是 'assets'，输出到 assets 目录根
+            output_path = os.path.join(paths.get('output', ''), 'assets')
+        else:
+            output_path = os.path.join(paths.get('output', ''), 'assets', rel_path)
         
         if resource_category == 'image':
             # 图片资源特殊处理，尝试还原正确路径
@@ -424,8 +543,17 @@ class ResourceProcessor:
                 logger().debug(f"非native目录图片，使用默认路径：{output_path}")
         
         # 检查是否为编译后的资源配置文件或JS文件，如果是则跳过
-        if (rel_path.startswith('config.') and rel_path.endswith('.json')) or \
-           (rel_path.startswith('index.') and rel_path.endswith('.js')):
+        # 但保留原始脚本文件（.ts 和不在编译后文件列表中的 .js）
+        is_compiled_file = (
+            (rel_path.startswith('config.') and rel_path.endswith('.json')) or
+            (rel_path.startswith('index.') and rel_path.endswith('.js')) or
+            (rel_path.startswith('main.') and rel_path.endswith('.js')) or
+            (rel_path.startswith('settings.') and rel_path.endswith('.js')) or
+            (rel_path.startswith('project.') and rel_path.endswith('.js')) or
+            (rel_path.startswith('cocos2d-js') and rel_path.endswith('.js'))
+        )
+        
+        if is_compiled_file:
             logger().debug(f"跳过编译后的文件: {rel_path}")
             return
         
