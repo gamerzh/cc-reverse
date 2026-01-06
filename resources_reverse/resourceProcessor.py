@@ -403,6 +403,9 @@ class ResourceProcessor:
             # 处理子包
             self.process_subpackages()
             
+            # 解析settings.js文件，获取资源索引总表
+            self.parse_settings_js()
+            
             # 解析bundle配置文件
             self.parse_bundle_config()
             
@@ -426,6 +429,59 @@ class ResourceProcessor:
         except Exception as e:
             logger()['exception']("处理资源文件时出错", e)
             raise
+    
+    def parse_settings_js(self):
+        """
+        解析settings.js文件，获取资源索引总表
+        """
+        logger()['info']("解析settings.js文件...")
+        
+        # 查找settings.js文件
+        settings_js_path = None
+        source_path = self.paths.get('source', '')
+        
+        # 可能的settings.js路径
+        possible_paths = [
+            os.path.join(source_path, 'src', 'settings.js'),
+            os.path.join(source_path, 'settings.js'),
+            os.path.join(source_path, 'main', 'settings.js'),
+            os.path.join(source_path, 'build', 'web-mobile', 'src', 'settings.js')
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                settings_js_path = path
+                logger()['debug'](f"找到settings.js文件: {settings_js_path}")
+                break
+        
+        if not settings_js_path:
+            logger()['warn']("未找到settings.js文件")
+            return
+        
+        try:
+            # 读取settings.js文件内容
+            with open(settings_js_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 提取window._CCSettings对象
+            import re
+            match = re.search(r'window\._CCSettings\s*=\s*(\{[\s\S]*?\});', content)
+            if match:
+                settings_str = match.group(1)
+                # 使用eval解析JSON（注意：仅用于解析settings.js，来源可控）
+                self.cc_settings = eval(settings_str)
+                logger()['debug']("成功解析_CCSettings对象")
+                
+                # 提取assets和packedAssets
+                if 'assets' in self.cc_settings:
+                    self.assets_index = self.cc_settings['assets']
+                    logger()['info'](f"提取到 {len(self.assets_index)} 个资源索引")
+                
+                if 'packedAssets' in self.cc_settings:
+                    self.packed_assets = self.cc_settings['packedAssets']
+                    logger()['info'](f"提取到 {len(self.packed_assets)} 个打包资源")
+        except Exception as e:
+            logger()['exception'](f"解析settings.js文件时出错", e)
     
     def parse_bundle_config(self):
         """
@@ -566,6 +622,10 @@ class ResourceProcessor:
         # bundle配置信息
         self.bundle_configs = {}  # key: bundle_name, value: config_data
         self.asset_mappings = {}  # key: asset_uuid, value: asset_info
+        # CCSettings信息
+        self.cc_settings = {}  # 完整的_CCSettings对象
+        self.assets_index = {}  # UUID -> [resource_path, resource_type] 映射
+        self.packed_assets = {}  # 打包资源映射
     
     def read_files(self, file_path: str, first: bool = False):
         """
@@ -642,7 +702,7 @@ class ResourceProcessor:
                 ext = os.path.splitext(filename)[1].lower()
                 basename = os.path.splitext(filename)[0]
                 
-                # 只处理需要逆向的资源类型，不执行任何复制操作
+                # 只处理需要逆向的资源类型
                 if ext in ['.png', '.jpg', '.jpeg', '.mp3', '.wav', '.ogg', '.anim']:
                     # 获取相对路径，保持原有目录结构
                     relative_path = self.file_relative_paths.get(curr_path, filename)
@@ -679,29 +739,97 @@ class ResourceProcessor:
                     # 写入.meta文件，使用原始目录结构
                     self.file_manager.write_file(original_dir, f"{filename}.meta", meta_data)
                     
-                    # 根据文件类型确定资源类型
+                    # 根据文件类型确定资源类型并解析资源
                     if ext in ['.png', '.jpg', '.jpeg']:
-                        resource_type = "texture"
+                        self.process_texture_resource(curr_path, original_dir, filename, meta_uuid)
                     elif ext in ['.mp3', '.wav', '.ogg']:
-                        resource_type = "audio"
+                        self.process_audio_resource(curr_path, original_dir, filename, meta_uuid)
                     elif ext == '.anim':
-                        resource_type = "animation"
+                        self.process_animation_resource(curr_path, original_dir, filename, meta_uuid)
                     else:
-                        resource_type = "other"
-                    
-                    logger()['info'](f"处理{resource_type}资源: {original_path} (uuid: {meta_uuid})")
-                    
-                    # 如果是动画文件，读取内容并写入，使用原始目录结构
-                    if ext == '.anim':
-                        with open(curr_path, 'r', encoding='utf-8') as f:
-                            anim_data = json.load(f)
-                        self.file_manager.write_file(original_dir, filename, anim_data)
-                        self.animations.append(anim_data)
+                        self.process_other_resource(curr_path, original_dir, filename, meta_uuid)
                 else:
                     # 跳过不需要的文件类型（如编译后的js文件）
                     logger()['debug'](f"跳过不需要的文件类型: {curr_path}")
             except Exception as e:
                 logger()['exception'](f"处理文件 {curr_path} 时出错", e)
+    
+    def process_texture_resource(self, curr_path: str, original_dir: str, filename: str, meta_uuid: str):
+        """
+        处理纹理资源
+        
+        Args:
+            curr_path (str): 当前文件路径
+            original_dir (str): 原始目录
+            filename (str): 文件名
+            meta_uuid (str): 资源UUID
+        """
+        # 读取纹理文件内容
+        with open(curr_path, 'rb') as f:
+            texture_data = f.read()
+        
+        # 写入纹理文件，保持原有文件格式
+        self.file_manager.write_file(original_dir, filename, texture_data)
+        
+        logger()['info'](f"处理texture资源: {os.path.join(original_dir, filename)} (uuid: {meta_uuid})")
+    
+    def process_audio_resource(self, curr_path: str, original_dir: str, filename: str, meta_uuid: str):
+        """
+        处理音频资源
+        
+        Args:
+            curr_path (str): 当前文件路径
+            original_dir (str): 原始目录
+            filename (str): 文件名
+            meta_uuid (str): 资源UUID
+        """
+        # 读取音频文件内容
+        with open(curr_path, 'rb') as f:
+            audio_data = f.read()
+        
+        # 写入音频文件，保持原有文件格式
+        self.file_manager.write_file(original_dir, filename, audio_data)
+        
+        logger()['info'](f"处理audio资源: {os.path.join(original_dir, filename)} (uuid: {meta_uuid})")
+    
+    def process_animation_resource(self, curr_path: str, original_dir: str, filename: str, meta_uuid: str):
+        """
+        处理动画资源
+        
+        Args:
+            curr_path (str): 当前文件路径
+            original_dir (str): 原始目录
+            filename (str): 文件名
+            meta_uuid (str): 资源UUID
+        """
+        # 读取动画文件内容
+        with open(curr_path, 'r', encoding='utf-8') as f:
+            anim_data = json.load(f)
+        
+        # 写入动画文件
+        self.file_manager.write_file(original_dir, filename, anim_data)
+        
+        logger()['info'](f"处理animation资源: {os.path.join(original_dir, filename)} (uuid: {meta_uuid})")
+        self.animations.append(anim_data)
+    
+    def process_other_resource(self, curr_path: str, original_dir: str, filename: str, meta_uuid: str):
+        """
+        处理其他资源
+        
+        Args:
+            curr_path (str): 当前文件路径
+            original_dir (str): 原始目录
+            filename (str): 文件名
+            meta_uuid (str): 资源UUID
+        """
+        # 读取文件内容
+        with open(curr_path, 'rb') as f:
+            resource_data = f.read()
+        
+        # 写入文件，保持原有文件格式
+        self.file_manager.write_file(original_dir, filename, resource_data)
+        
+        logger()['info'](f"处理other资源: {os.path.join(original_dir, filename)} (uuid: {meta_uuid})")
     
     def process_data(self, key: str, data: Any):
         """
