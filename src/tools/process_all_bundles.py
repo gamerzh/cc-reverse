@@ -28,7 +28,8 @@ def extract_bundle(bundle_path):
     print(f"{'='*80}")
     
     # 运行bundle_extractor.py
-    cmd = [sys.executable, "bundle_extractor.py", bundle_path]
+    bundle_extractor_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bundle_extractor.py")
+    cmd = [sys.executable, bundle_extractor_path, bundle_path]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)

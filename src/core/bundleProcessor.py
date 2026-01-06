@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 # 尝试导入bundle_extractor和module_converter
 try:
-    import bundle_extractor
-    import module_converter
+    from src.tools import bundle_extractor
+    from src.tools import module_converter
     EXTERNAL_TOOLS_AVAILABLE = True
 except ImportError as e:
     logger().warn(f"无法导入外部工具: {e}")

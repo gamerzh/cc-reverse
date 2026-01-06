@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import bundle_extractor
+from src.tools import bundle_extractor
 
 def test_main_bundle():
     bundle_path = r"C:\Workflow\xsh5\build\web-mobile\assets\main\index.81ec1.js"
