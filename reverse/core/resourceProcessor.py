@@ -54,7 +54,7 @@ class ResourceProcessor:
         Args:
             paths (dict): 路径字典，包含source、res、output等路径
         """
-        from utils.logger import logger
+        from reverse.utils.logger import logger
         import os
         import json
         import shutil
@@ -525,7 +525,7 @@ class ResourceProcessor:
                 self._generateLobbySceneIfNotExists(paths)
         
         # 删除输出目录中的空文件夹
-        from utils.fileManager import fileManager
+        from reverse.utils.fileManager import fileManager
         output_assets_path = os.path.join(paths.get('output', ''), 'assets')
         
         # 1. 删除编译后的目录（import和native）
@@ -554,7 +554,7 @@ class ResourceProcessor:
             asset_root (str): 资源根目录
             paths (dict): 路径字典，包含output等路径
         """
-        from utils.logger import logger
+        from reverse.utils.logger import logger
         from utils.fileManager import fileManager
         
         # 检测文件类型
@@ -893,7 +893,7 @@ class ResourceProcessor:
             paths (dict): 路径字典
         """
         from utils.fileManager import fileManager
-        from utils.logger import logger
+        from reverse.utils.logger import logger
         import os
         import json
         import uuid as uuid_module

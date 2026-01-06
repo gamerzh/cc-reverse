@@ -27,7 +27,7 @@ class CodeAnalyzer:
             code (str): JavaScript代码
             file_path (str): 可选的文件路径
         """
-        from utils.logger import logger
+        from reverse.utils.logger import logger
         logger().debug(f"开始分析代码... 文件: {file_path}")
         
         try:

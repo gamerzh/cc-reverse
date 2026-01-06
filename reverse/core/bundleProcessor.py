@@ -11,18 +11,18 @@ import shutil
 from pathlib import Path
 
 # 导入项目工具
-from utils.logger import logger
-from utils.fileManager import fileManager
+from reverse.utils.logger import logger
+from reverse.utils.fileManager import fileManager
 
 # 导入外部工具
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # 尝试导入bundle_extractor和module_converter
 try:
-    from src.tools import bundle_extractor
-    from src.tools import module_converter
+    from reverse.tools import bundle_extractor
+    from reverse.tools import module_converter
     EXTERNAL_TOOLS_AVAILABLE = True
 except ImportError as e:
     logger().warn(f"无法导入外部工具: {e}")

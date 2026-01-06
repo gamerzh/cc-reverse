@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 # 导入核心模块
-from src.core.reverseEngine import reverseProject
+from reverse.core.reverseEngine import reverseProject
 
 # 自定义主题
 custom_theme = Theme({

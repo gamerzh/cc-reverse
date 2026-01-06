@@ -7,10 +7,10 @@ import os
 import sys
 import shutil
 import json
-from utils.fileManager import fileManager
-from utils.logger import logger
-from config.configLoader import loadConfig
-from core.bundleProcessor import bundleProcessor
+from reverse.utils.fileManager import fileManager
+from reverse.utils.logger import logger
+from reverse.config.configLoader import loadConfig
+from reverse.core.bundleProcessor import bundleProcessor
 
 global_config = {}
 global_verbose = False
