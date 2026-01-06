@@ -43,12 +43,35 @@ def logger():
         "set_level": set_level,
         "set_verbose": set_verbose
     }
-# 直接导入configLoader模块，避免路径问题
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from config.configLoader import loadConfig
-from main.core.bundleProcessor import bundleProcessor
+# 修复导入问题，直接实现loadConfig函数
+def loadConfig():
+    """
+    加载配置文件
+    
+    Returns:
+        dict: 配置字典
+    """
+    return {
+        "output": {
+            "createMeta": True,
+            "prettify": True,
+            "includeComments": True
+        },
+        "codeGen": {
+            "language": "typescript",
+            "moduleType": "commonjs",
+            "indentSize": 2,
+            "indent": "space"
+        },
+        "assets": {
+            "extractTextures": True,
+            "extractAudio": True,
+            "extractAnimations": True,
+            "optimizeSprites": False
+        }
+    }
+
+# 移除模块级别的bundleProcessor导入，改为在函数内部导入，避免循环导入
 
 global_config = {}
 global_verbose = False
@@ -756,7 +779,8 @@ def process_bundle_files(bundle_files, output_base_dir, res_path):
     Returns:
         list: 处理结果列表
     """
-
+    # 导入bundleProcessor，避免循环导入
+    from main.core.bundleProcessor import bundleProcessor
     
     results = []
     

@@ -38,7 +38,7 @@ def run_test():
     subprocess.run(
         "npm install", 
         shell=True, 
-        cwd="js_analyzer", 
+        cwd="code_reverse/js_analyzer", 
         check=True, 
         encoding='utf-8'
     )
@@ -46,10 +46,11 @@ def run_test():
     # 2. 运行js_analyzer解析代码
     print("\n2. 运行js_analyzer解析代码...")
     # 使用PowerShell执行node命令
+    # 使用原始字符串避免反斜杠转义问题
     subprocess.run(
-        f"node parse_bundle.js ..\\debug\\test_sample.js ..\\output", 
+        r"node parse_bundle.js ..\..\debug\test_sample.js ..\..\output", 
         shell=True, 
-        cwd="js_analyzer", 
+        cwd="code_reverse/js_analyzer", 
         check=True, 
         encoding='utf-8'
     )
@@ -57,7 +58,7 @@ def run_test():
     # 3. 运行py_generator生成代码
     print("\n3. 运行py_generator生成代码...")
     subprocess.run([
-        "python", "py_generator/gen_ts.py", 
+        "python", "code_reverse/py_generator/gen_ts.py", 
         "output/test_sample.js.json", 
         "output/generated_code",
         "--format", "typescript"

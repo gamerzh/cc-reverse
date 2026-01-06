@@ -11,74 +11,53 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 # 导入生成器
-from py_generator.gen_ts import TypeScriptGenerator
+from code_reverse.py_generator.gen_ts import TypeScriptGenerator
 
 def create_test_json():
-    """创建测试用的JSON数据"""
-    test_json = {
-        "generatedAt": "2026-01-06T03:38:08.509Z",
-        "totalFiles": 1,
-        "successful": 1,
-        "failed": 0,
-        "results": [
-            {
-                "success": True,
-                "data": {
-                    "filePath": "debug/test_sample.js",
-                    "fileName": "test_sample.js",
-                    "moduleName": "test123",
-                    "dependencies": [],
-                    "classDefinitions": [
+    """创建测试用的JSON数据，格式与js_analyzer生成的一致"""
+    test_json = [
+        {
+            "module": "test123",
+            "imports": {},
+            "staticProperties": ["_config", "version"],
+            "classDefinitions": [
+                {
+                    "type": "cc_class",
+                    "name": "TestUI",
+                    "extends": "cc.Component",
+                    "properties": [
                         {
-                            "type": "cc_class",
-                            "name": "TestUI",
-                            "extends": "cc.Component",
-                            "properties": [
-                                {
-                                    "name": "label",
-                                    "type": "cc.Label",
-                                    "defaultValue": None
-                                },
-                                {
-                                    "name": "score",
-                                    "type": "Number",
-                                    "defaultValue": 0
-                                }
-                            ],
-                            "methods": [
-                                {
-                                    "name": "onLoad",
-                                    "params": [],
-                                    "type": "function"
-                                },
-                                {
-                                    "name": "start",
-                                    "params": [],
-                                    "type": "function"
-                                },
-                                {
-                                    "name": "updateScore",
-                                    "params": [],
-                                    "type": "function"
-                                }
-                            ],
-                            "statics": []
+                            "name": "label",
+                            "type": "cc.Label",
+                            "defaultValue": "unknown"
+                        },
+                        {
+                            "name": "score",
+                            "type": "Number",
+                            "defaultValue": 0
                         }
                     ],
-                    "staticFields": [
+                    "methods": [
                         {
-                            "name": "_config",
-                            "value": "unknown",
-                            "type": "object"
+                            "name": "onLoad",
+                            "params": [],
+                            "type": "function"
+                        },
+                        {
+                            "name": "start",
+                            "params": [],
+                            "type": "function"
+                        },
+                        {
+                            "name": "updateScore",
+                            "params": [],
+                            "type": "function"
                         }
-                    ],
-                    "methods": [],
-                    "originalContent": "// 测试模块\ncc._RF.push(t, \"test123\", \"TestModule\");\n\ncc.Class({\n  name: \"TestUI\",\n  extends: cc.Component,\n  properties: {\n    label: { default: null, type: cc.Label },\n    score: { default: 0, type: Number }\n  },\n  onLoad: function() {\n    console.log(\"TestUI loaded\");\n  },\n  start: function() {\n    this.updateScore();\n  },\n  updateScore: function() {\n    if (this.label) {\n      this.label.string = \"Score: \" + this.score;\n    }\n  }\n});\n\n// 静态字段\ne._config = { host: \"localhost\", port: 8080 };\nObject.defineProperty(e, \"version\", {\n  get: function() { return \"1.0.0\"; }\n});\n\ncc._RF.pop();",
-                    "prettifiedContent": "// 测试模块\ncc._RF.push(t, \"test123\", \"TestModule\");\n\ncc.Class({\n  name: \"TestUI\",\n  extends: cc.Component,\n  properties: {\n    label: { default: null, type: cc.Label },\n    score: { default: 0, type: Number }\n  },\n  onLoad: function() {\n    console.log(\"TestUI loaded\");\n  },\n  start: function() {\n    this.updateScore();\n  },\n  updateScore: function() {\n    if (this.label) {\n      this.label.string = \"Score: \" + this.score;\n    }\n  }\n});\n\n// 静态字段\ne._config = { host: \"localhost\", port: 8080 };\nObject.defineProperty(e, \"version\", {\n  get: function() { return \"1.0.0\"; }\n});\n\ncc._RF.pop();"
+                    ]
                 }
-            }
-        ]
-    }
+            ]
+        }
+    ]
     
     # 保存到文件
     output_dir = "output"
