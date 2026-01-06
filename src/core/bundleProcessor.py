@@ -244,7 +244,20 @@ class BundleProcessor:
         # 处理每个.js文件
         for js_file in js_files:
             try:
-                results = converter.process_module_file(js_file, output_format=format)
+                # 优先使用混合架构处理（Node.js + Python）
+                results = None
+                
+                try:
+                    # 尝试使用结构化AST处理
+                    results = converter.process_module_with_structured_ast(js_file, output_format=format)
+                    logger().debug(f"使用混合架构处理文件: {js_file}")
+                except Exception as e:
+                    logger().warn(f"混合架构处理失败，回退到传统处理: {e}")
+                
+                # 如果混合架构失败，使用传统方式处理
+                if not results:
+                    logger().debug(f"使用传统方式处理文件: {js_file}")
+                    results = converter.process_module_file(js_file, output_format=format)
                 
                 if results:
                     # 如果同一个文件中有多个类，为每个类生成不同的文件名

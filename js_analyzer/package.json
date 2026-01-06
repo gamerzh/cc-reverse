@@ -1,0 +1,23 @@
+{
+  "name": "js_analyzer",
+  "version": "1.0.0",
+  "description": "JavaScript code analyzer for Cocos Creator reverse engineering",
+  "main": "parse_bundle.js",
+  "scripts": {
+    "parse": "node parse_bundle.js"
+  },
+  "keywords": [
+    "cocos-creator",
+    "javascript",
+    "ast",
+    "reverse-engineering"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@babel/parser": "^7.23.0",
+    "@babel/traverse": "^7.23.0",
+    "fs-extra": "^11.2.0",
+    "prettier": "^3.2.4"
+  }
+}

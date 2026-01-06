@@ -1,0 +1,27 @@
+{
+  "name": "cc-reverse-analyzer",
+  "version": "1.0.0",
+  "description": "Node.js analyzer for Cocos Creator reverse engineering",
+  "main": "src/tools/node_js_analyzer.js",
+  "scripts": {
+    "analyze": "node src/tools/node_js_analyzer.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "cocos-creator",
+    "reverse-engineering",
+    "ast",
+    "babel",
+    "esprima"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@babel/core": "^7.23.9",
+    "esprima": "^4.0.1",
+    "prettier": "^3.2.4"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.23.9"
+  }
+}
