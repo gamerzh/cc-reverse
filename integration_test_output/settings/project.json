@@ -1,7 +1,0 @@
-{
-  "project_type": "javascript",
-  "debug": {
-    "devtool": "source-map"
-  },
-  "renderPipeline": "builtin-standard"
-}

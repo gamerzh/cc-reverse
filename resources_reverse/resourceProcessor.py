@@ -376,26 +376,19 @@ class ResourceProcessor:
             logger()['exception']("处理资源文件时出错", e)
             raise
     
-    def processResources(self, paths: Dict[str, str]):
+    def processResources(self, paths: Dict[str, str], settings: Dict[str, Any] = None):
         """
         兼容方法，支持reverseEngine.py的调用
         
         Args:
             paths (dict): 路径字典
+            settings (dict, optional): 全局设置，默认None
         """
-        # 从全局变量获取settings
-        import sys
-        import os
+        # 如果没有提供settings，使用空字典
+        if settings is None:
+            settings = {}
         
-        # 添加项目根目录到sys.path
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        if project_root not in sys.path:
-            sys.path.insert(0, project_root)
-        
-        # 导入全局变量
-        from main.core.reverseEngine import global_settings
-        
-        return self.process_resources(paths, global_settings)
+        return self.process_resources(paths, settings)
     
     def reset_state(self):
         """重置处理器状态"""

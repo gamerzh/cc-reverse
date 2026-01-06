@@ -7,6 +7,14 @@ import os
 import sys
 import shutil
 import json
+
+# 添加项目根目录到sys.path，确保可以导入code_reverse模块
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(project_root)
+
+# 导入code_reverse模块
+from code_reverse import code_reverse
+
 # 重新实现logger函数，避免依赖外部模块
 def logger():
     def info(msg, **kwargs):
@@ -187,120 +195,19 @@ def reverseProject(options):
         logger()["success"]("项目设置解析完成")
         
         # 导入需要在全局变量设置后使用的模块
-        from core.codeAnalyzer import codeAnalyzer
         from resources_reverse.resourceProcessor import resourceProcessor
-        from core.projectGenerator import projectGenerator
+        from .projectGenerator import projectGenerator
+        
+        # code_reverse模块已在文件顶部导入，无需重复导入
         
         # 先创建项目结构
         logger()["info"]("创建项目目录结构...")
         projectGenerator._createProjectStructure(global_paths)
         logger()["success"]("项目目录结构创建完成")
         
-        # 分析主项目文件
-        logger()["info"]('开始分析主项目文件...')
-        codeAnalyzer.analyze(code)
-        components_count = len(codeAnalyzer.analyzed_data.get('components', []))
-        logger()["success"](f"主项目文件分析完成，检测到 {components_count} 个组件")
-        
-        if components_count > 0:
-            logger()["info"](f"检测到的组件: {[c.get('name') for c in codeAnalyzer.analyzed_data.get('components', [])]}")
-        
-        # 分析settings中列出的所有JavaScript文件
-        js_list = global_settings.get('CCSettings', {}).get('jsList', [])
-        if js_list:
-            logger()["info"](f'开始分析 {len(js_list)} 个额外脚本文件...')
-            source_path = global_paths.get('source', '')
-            js_files = []
-            missing_files = []
-            
-            for js_file in js_list:
-                # 构建完整的文件路径
-                # 尝试多种可能的路径
-                possible_paths = [
-                    os.path.join(source_path, js_file),  # 直接在项目根目录下
-                    os.path.join(source_path, 'src', js_file),  # 在src目录下
-                    os.path.join(source_path, js_file.replace('assets/', '')),  # 移除assets前缀
-                    os.path.join(source_path, 'src', js_file.replace('assets/', ''))  # 在src目录下，移除assets前缀
-                ]
-                
-                found = False
-                for js_file_path in possible_paths:
-                    if os.path.exists(js_file_path):
-                        js_files.append(js_file_path)
-                        found = True
-                        break
-                
-                if not found:
-                    missing_files.append(js_file)
-        
-        # 报告缺失的文件
-            if missing_files:
-                logger()["warn"](f'未找到 {len(missing_files)} 个脚本文件: {missing_files[:5]}{"..." if len(missing_files) > 5 else ""}')
-        
-        # 分析所有找到的脚本文件
-        if js_files:
-            logger()["info"](f'分析找到的 {len(js_files)} 个脚本文件...')
-            codeAnalyzer.analyzeMultipleFiles(js_files)
-            logger()["success"](f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
-        
-        # 查找并处理Webpack bundle文件
-        logger()["info"]('开始查找并处理Webpack bundle文件...')
-        index_files = []  # 初始化index_files列表，用于收集所有要分析的脚本文件
-        bundle_files = find_bundle_files(global_paths['res'])
-        if bundle_files:
-            logger()["info"](f'找到 {len(bundle_files)} 个可能的bundle文件')
-            for i, bf in enumerate(bundle_files[:5]):  # 只显示前5个
-                logger()["debug"](f'  [{i+1}] {bf}')
-            if len(bundle_files) > 5:
-                logger()["debug"](f'  ... 还有 {len(bundle_files)-5} 个文件')
-            processed_bundles = process_bundle_files(bundle_files, global_paths['output'], global_paths['res'])
-            # 将处理生成的TypeScript文件添加到分析列表
-            for bundle_result in processed_bundles:
-                if bundle_result.get('success'):
-                    output_dir = bundle_result.get('output_dir')
-                    if output_dir:
-                        # 查找typescript目录
-                        ts_dir = os.path.join(output_dir, 'typescript')
-                        if os.path.exists(ts_dir):
-                            ts_files = [os.path.join(ts_dir, f) for f in os.listdir(ts_dir) if f.endswith('.ts')]
-                            if ts_files:
-                                index_files.extend(ts_files)
-                                logger()["debug"](f"添加 {len(ts_files)} 个TypeScript文件到分析列表")
-        else:
-            logger()["info"]('未找到Webpack bundle文件')
-        
-        # 查找并分析所有index.*.js文件（包含编译后的游戏逻辑）
-        logger()["info"]('开始查找并分析index.*.js文件...')
-        import glob
-        source_path = global_paths.get('source', '')
-        # index_files = []  # 已经在前面的bundle处理中初始化
-        # 查找assets目录下的所有index.*.js文件
-        index_patterns = [
-            os.path.join(source_path, 'assets', '*', 'index.*.js'),
-            os.path.join(source_path, 'assets', '*', '*', 'index.*.js'),
-            os.path.join(source_path, 'assets', '*', '*', '*', 'index.*.js'),
-        ]
-        for pattern in index_patterns:
-            matches = glob.glob(pattern)
-            if matches:
-                index_files.extend(matches)
-                logger()["debug"](f'模式 {pattern} 匹配到 {len(matches)} 个文件')
-        
-        # 去重
-        index_files = list(set(index_files))
-        logger()["info"](f'找到 {len(index_files)} 个index.*.js文件')
-        
-        # 分析这些文件
-        if index_files:
-            logger()["info"](f'开始分析index.*.js文件...')
-            codeAnalyzer.analyzeMultipleFiles(index_files)
-            logger()["success"](f'index.*.js文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
-        else:
-            logger()["warn"]('未找到任何index.*.js文件')
-        
         # 处理资源
         logger()["info"]('开始处理资源...')
-        resourceProcessor.processResources(global_paths)
+        resourceProcessor.processResources(global_paths, global_settings)
         resource_stats = resourceProcessor.getResourceStats()
         logger()["success"](f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
         
@@ -309,14 +216,107 @@ def reverseProject(options):
         extractScriptFiles(global_paths, global_settings)
         logger()["success"]('脚本文件提取完成')
         
-        # 生成脚本文件（如果需要从编译后的代码中提取组件）
-        if codeAnalyzer.analyzed_data.get('components', []):
-            components_count = len(codeAnalyzer.analyzed_data.get('components', []))
-            logger()["info"](f'检测到 {components_count} 个组件，开始生成脚本文件...')
-            codeAnalyzer.generateScripts(global_paths.get('output', ''))
-            logger()["success"](f'脚本文件生成完成，共生成 {components_count} 个脚本文件')
+        # 使用新的代码逆向流程
+        logger()["info"]('开始代码逆向分析...')
+        
+        # 收集所有JavaScript文件
+        js_files = []
+        
+        # 1. 从jsList获取脚本文件
+        js_list = global_settings.get('CCSettings', {}).get('jsList', [])
+        source_path = global_paths.get('source', '')
+        
+        for js_file in js_list:
+            # 构建完整的文件路径
+            possible_paths = [
+                os.path.join(source_path, js_file),  # 直接在项目根目录下
+                os.path.join(source_path, 'src', js_file),  # 在src目录下
+                os.path.join(source_path, js_file.replace('assets/', '')),  # 移除assets前缀
+                os.path.join(source_path, 'src', js_file.replace('assets/', ''))  # 在src目录下，移除assets前缀
+            ]
+            
+            for js_file_path in possible_paths:
+                if os.path.exists(js_file_path):
+                    js_files.append(js_file_path)
+                    break
+        
+        # 2. 查找所有可能的bundle文件和JavaScript文件
+        import glob
+        
+        # 查找各种JavaScript文件
+        js_patterns = [
+            os.path.join(source_path, 'assets', '**', '*.js'),
+            os.path.join(source_path, 'src', '**', '*.js'),
+            os.path.join(source_path, '**', '*.jsbundle'),  # Webpack bundle文件
+            os.path.join(source_path, '**', '*.js')
+        ]
+        
+        for pattern in js_patterns:
+            matches = glob.glob(pattern, recursive=True)
+            if matches:
+                js_files.extend(matches)
+                logger()["debug"](f'模式 {pattern} 匹配到 {len(matches)} 个JS文件')
+        
+        # 去重
+        js_files = list(set(js_files))
+        
+        # 过滤掉不需要处理的文件
+        filtered_js_files = []
+        for js_file in js_files:
+            # 跳过node_modules和其他非项目文件
+            if 'node_modules' in js_file or '.git' in js_file or '__pycache__' in js_file:
+                continue
+            # 跳过可能的临时文件
+            if js_file.endswith('.tmp.js') or js_file.endswith('.temp.js'):
+                continue
+            filtered_js_files.append(js_file)
+        
+        js_files = filtered_js_files
+        
+        if js_files:
+            logger()["info"](f'找到 {len(js_files)} 个JavaScript文件，开始分析...')
+            
+            # 创建临时目录
+            temp_dir = os.path.join(global_paths['output'], 'temp')
+            json_output = os.path.join(temp_dir, 'json')
+            
+            # 初始化代码逆向实例
+            from code_reverse import CodeReverse
+            reverse = CodeReverse()
+            reverse.set_config('preserve_temp', verbose)
+            
+            # 使用JS分析器分析所有代码文件
+            success = reverse.analyze_code(
+                source_path,  # 传入整个源目录
+                json_output,
+                file_patterns=['*.js', '*.jsbundle']  # 处理所有JS和bundle文件
+            )
+            
+            if success:
+                # 检查是否生成了JSON文件
+                if os.path.exists(json_output) and len(os.listdir(json_output)) > 0:
+                    # 生成TypeScript代码
+                    output_dir = os.path.join(global_paths['output'], 'assets', 'scripts')
+                    success = reverse.generate_code(
+                        json_output,
+                        output_dir,
+                        'typescript'
+                    )
+                    
+                    if success:
+                        # 检查生成的代码文件
+                        if os.path.exists(output_dir) and len(os.listdir(output_dir)) > 0:
+                            logger()["success"](f'代码逆向分析完成，生成了 {len(os.listdir(output_dir))} 个TypeScript文件')
+                        else:
+                            logger()["warn"]('代码生成成功，但未生成任何代码文件')
+                    else:
+                        logger()["error"]("代码生成失败")
+                else:
+                    logger()["warn"]('代码分析成功，但未生成任何JSON文件')
+            else:
+                logger()["error"]("代码分析失败")
         else:
-            logger()["warn"]('未检测到任何组件')
+            logger()["warn"]('未找到任何JavaScript文件')
         
         # 生成项目文件
         logger()["info"]('生成项目配置文件...')
@@ -358,8 +358,6 @@ def detectProjectVersion(sourcePath, versionHint):
     Returns:
         dict: 包含版本信息和文件路径的对象
     """
-    import glob
-    
     # 2.4.x版本的可能路径（支持带md5值的文件名）
     paths24x = {
         'settings': [
@@ -388,6 +386,7 @@ def detectProjectVersion(sourcePath, versionHint):
     
     def findExistingPath(pathArray):
         """查找存在的路径，支持通配符模式"""
+        import glob
         for pattern in pathArray:
             # 先尝试直接检查路径是否存在
             if os.path.exists(pattern):
@@ -401,6 +400,7 @@ def detectProjectVersion(sourcePath, versionHint):
     
     def findAllMatchingFiles(pathArray):
         """查找所有匹配的文件，支持通配符模式"""
+        import glob
         all_matches = []
         for pattern in pathArray:
             # 使用glob查找匹配的文件
@@ -718,7 +718,7 @@ def process_bundle_files(bundle_files, output_base_dir, res_path):
         list: 处理结果列表
     """
     # 导入bundleProcessor，避免循环导入
-    from core.bundleProcessor import bundleProcessor
+    from .bundleProcessor import bundleProcessor
     
     results = []
     

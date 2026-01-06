@@ -261,24 +261,79 @@ class TypeScriptGenerator:
         lines = []
         
         if class_def['type'] == 'cc_class':
-            # 生成cc.Class的TypeScript版本
+            # 生成完整的Cocos Creator TypeScript组件
             class_name = class_def.get('name', 'UnknownClass')
             extends = class_def.get('extends', 'cc.Component')
+            
+            # 文件头 - 导入Cocos Creator模块
+            lines.append("import { _decorator, Component, Node } from 'cc';")
+            lines.append("const { ccclass, property } = _decorator;")
+            lines.append("")
+            
+            # 类装饰器
+            lines.append(f"@ccclass('{class_name}')")
             lines.append(f"export class {class_name} extends {extends} {{")
             
-            # 属性
+            # 属性定义
             props = class_def.get('properties', [])
             for prop in props:
-                ts_type = prop.get('type', 'any')
-                lines.append(f"  {prop['name']}: {ts_type};")
+                ts_type = self._convert_to_cc_type(prop.get('type', 'any'))
+                default_value = self._format_default_value(prop.get('defaultValue', None), ts_type)
+                
+                # Cocos Creator属性装饰器
+                if ts_type == 'Node' or ts_type == 'cc.Node':
+                    lines.append(f"  @property(Node)")
+                elif ts_type in ['number', 'string', 'boolean']:
+                    lines.append(f"  @property")
+                elif ts_type == 'SpriteFrame' or ts_type == 'cc.SpriteFrame':
+                    lines.append(f"  @property(SpriteFrame)")
+                elif ts_type == 'AudioClip' or ts_type == 'cc.AudioClip':
+                    lines.append(f"  @property(AudioClip)")
+                elif ts_type == 'Texture2D' or ts_type == 'cc.Texture2D':
+                    lines.append(f"  @property(Texture2D)")
+                elif ts_type == 'AnimationClip' or ts_type == 'cc.AnimationClip':
+                    lines.append(f"  @property(AnimationClip)")
+                else:
+                    lines.append(f"  @property")
+                
+                # 属性声明
+                if default_value is not None:
+                    lines.append(f"  {prop['name']}: {ts_type} = {default_value};")
+                else:
+                    lines.append(f"  {prop['name']}: {ts_type};")
+                lines.append("")
             
-            # 方法
+            # 生命周期函数
+            lines.append("  // 生命周期函数 - 只在第一个组件实例上调用一次")
+            lines.append("  protected onLoad(): void {")
+            lines.append("    // 初始化代码")
+            lines.append("  }")
+            lines.append("")
+            
+            lines.append("  // 生命周期函数 - 每次组件实例激活时调用")
+            lines.append("  protected start(): void {")
+            lines.append("    // 组件开始运行时的代码")
+            lines.append("  }")
+            lines.append("")
+            
+            lines.append("  // 每一帧更新时调用")
+            lines.append("  protected update(deltaTime: number): void {")
+            lines.append("    // 每一帧更新的代码")
+            lines.append("  }")
+            lines.append("")
+            
+            # 自定义方法
             methods = class_def.get('methods', [])
             for method in methods:
+                # 跳过生命周期函数，已经自动生成
+                if method['name'] in ['onLoad', 'start', 'update', 'onDestroy', 'onEnable', 'onDisable']:
+                    continue
+                    
                 params_str = ', '.join([f"{param}: any" for param in method.get('params', [])])
                 lines.append(f"  {method['name']}({params_str}): void {{")
-                lines.append(f"    // 方法实现")
+                lines.append(f"    // {method['name']} 方法实现")
                 lines.append(f"  }}")
+                lines.append("")
             
             lines.append(f"}}")
         elif class_def['type'] == 'es6_class':
@@ -294,10 +349,78 @@ class TypeScriptGenerator:
                 lines.append(f"  {method['name']}({params_str}): void {{")
                 lines.append(f"    // 方法实现")
                 lines.append(f"  }}")
+                lines.append("")
             
             lines.append(f"}}")
         
         return lines
+    
+    def _convert_to_cc_type(self, type_name):
+        """将Cocos Creator类型转换为TypeScript类型
+        
+        Args:
+            type_name: Cocos Creator类型名
+            
+        Returns:
+            str: TypeScript类型名
+        """
+        type_map = {
+            'cc.Node': 'Node',
+            'Node': 'Node',
+            'cc.SpriteFrame': 'SpriteFrame',
+            'SpriteFrame': 'SpriteFrame',
+            'cc.AudioClip': 'AudioClip',
+            'AudioClip': 'AudioClip',
+            'cc.Texture2D': 'Texture2D',
+            'Texture2D': 'Texture2D',
+            'cc.AnimationClip': 'AnimationClip',
+            'AnimationClip': 'AnimationClip',
+            'cc.Integer': 'number',
+            'Integer': 'number',
+            'cc.Float': 'number',
+            'Float': 'number',
+            'cc.Boolean': 'boolean',
+            'Boolean': 'boolean',
+            'cc.String': 'string',
+            'String': 'string',
+            'cc.Vec2': 'Vec2',
+            'Vec2': 'Vec2',
+            'cc.Vec3': 'Vec3',
+            'Vec3': 'Vec3',
+            'cc.Color': 'Color',
+            'Color': 'Color'
+        }
+        
+        return type_map.get(type_name, type_name)
+    
+    def _format_default_value(self, value, type_name):
+        """格式化默认值
+        
+        Args:
+            value: 默认值
+            type_name: TypeScript类型名
+            
+        Returns:
+            str: 格式化后的默认值
+        """
+        if value is None or value == 'unknown':
+            return None
+            
+        if type_name == 'string' or isinstance(value, str):
+            # 字符串值需要引号
+            return f"'{value}'"
+        elif type_name == 'boolean' or isinstance(value, bool):
+            # 布尔值直接返回
+            return str(value).lower()
+        elif type_name == 'number' or isinstance(value, (int, float)):
+            # 数字直接返回
+            return str(value)
+        elif type_name in ['Node', 'cc.Node', 'SpriteFrame', 'cc.SpriteFrame', 'AudioClip', 'cc.AudioClip', 'Texture2D', 'cc.Texture2D', 'AnimationClip', 'cc.AnimationClip']:
+            # 引用类型默认为null
+            return 'null'
+        else:
+            # 其他类型返回null
+            return None
     
     def _generate_property_def(self, prop):
         """生成属性定义
