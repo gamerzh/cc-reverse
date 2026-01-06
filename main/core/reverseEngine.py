@@ -170,7 +170,7 @@ def reverseProject(options):
         
         # 导入需要在全局变量设置后使用的模块
         from main.core.codeAnalyzer import codeAnalyzer
-        from resources.resourceProcessor import resourceProcessor
+        from resources_reverse.resourceProcessor import resourceProcessor
         from main.core.projectGenerator import projectGenerator
         
         # 先创建项目结构
