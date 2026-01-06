@@ -1,8 +1,0 @@
-# Cocos Creator 逆向工程工具依赖
-colorama
-rich
-tqdm
-filetype
-pillow
-click
-esprima

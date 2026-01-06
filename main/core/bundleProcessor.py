@@ -114,6 +114,11 @@ class BundleProcessor:
         
         logger()["info"](f"提取bundle: {bundle_path}")
         
+        # 检查外部工具是否可用
+        if not EXTERNAL_TOOLS_AVAILABLE:
+            logger()["warn"]("外部工具不可用，跳过bundle提取")
+            return {}
+        
         # 如果未指定输出目录，则在bundle所在目录下创建script目录
         if output_dir is None:
             bundle_dir = os.path.dirname(bundle_path)
@@ -267,12 +272,17 @@ class BundleProcessor:
                 js_files.append(os.path.join(modules_dir, item))
         
         if not js_files:
-            logger().warn(f"模块目录中没有找到.js文件: {modules_dir}")
+            logger()["warn"](f"模块目录中没有找到.js文件: {modules_dir}")
             return []
         
         logger()["info"](f"开始转换 {len(js_files)} 个模块为{format}...")
         
         converted_classes = []
+        
+        # 检查外部工具是否可用
+        if not EXTERNAL_TOOLS_AVAILABLE:
+            logger()["warn"]("外部工具不可用，跳过模块转换")
+            return []
         
         # 创建ModuleConverter实例
         converter = module_converter.ModuleConverter()
