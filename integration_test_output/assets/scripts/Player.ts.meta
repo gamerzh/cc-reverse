@@ -1,0 +1,10 @@
+{
+  "ver": "1.0.3",
+  "uuid": "62862749-140d-48db-a68e-3ae2470a3f19",
+  "asyncLoadAssets": false,
+  "subMetas": {},
+  "script": {
+    "classname": "",
+    "super": "cc.Component"
+  }
+}

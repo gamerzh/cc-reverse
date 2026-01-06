@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-资源处理器
+资源处理器 - 参考Cocos Creator Web逆向工程实现
 """
 
 import os
 import json
+import uuid
 import shutil
+from pathlib import Path
+from typing import List, Dict, Any, Optional
 
-# 本地实现logger函数，避免依赖外部模块
+# 本地实现logger函数
 def logger():
-    """日志函数，返回日志方法字典"""
     def info(msg, **kwargs):
         print(f"[INFO] {msg}")
     
@@ -45,886 +47,845 @@ def logger():
         "set_verbose": set_verbose
     }
 
-# 本地实现FileManager类，避免依赖外部模块
-class FileManager:
-    """文件管理器类，实现常用的文件操作"""
+# 本地实现uuidUtils类
+class UuidUtils:
+    """UUID工具类"""
     
-    def readFile(self, file_path):
-        """读取文件内容"""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return f.read()
+    @staticmethod
+    def generate_uuid():
+        """生成UUID"""
+        return str(uuid.uuid4())
     
-    def writeFile(self, file_path, content):
-        """写入文件内容"""
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-    
-    def copyFile(self, source_path, target_path):
-        """复制文件"""
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        shutil.copy2(source_path, target_path)
-    
-    def deleteDirectoriesByName(self, directory, names):
-        """删除指定名称的目录"""
-        for name in names:
-            dir_path = os.path.join(directory, name)
-            if os.path.exists(dir_path):
-                shutil.rmtree(dir_path, ignore_errors=True)
-                logger()['info'](f"删除目录: {dir_path}")
-    
-    def deleteEmptyDirectories(self, directory):
-        """删除空目录"""
-        for root, dirs, files in os.walk(directory, topdown=False):
-            for dir_name in dirs:
-                dir_path = os.path.join(root, dir_name)
-                if not os.listdir(dir_path):
-                    os.rmdir(dir_path)
-                    logger()['debug'](f"删除空目录: {dir_path}")
+    @staticmethod
+    def decode_uuid(uuid_str: str) -> str:
+        """解码UUID"""
+        return uuid_str
 
-# 创建全局实例
-fileManager = FileManager()
+# 本地实现fileManager类
+class FileManager:
+    """文件管理器类"""
+    
+    def __init__(self, output_path: str):
+        self.output_path = output_path
+    
+    def ensure_directory_exists(self, dir_path: str):
+        """确保目录存在"""
+        os.makedirs(dir_path, exist_ok=True)
+    
+    def write_file(self, directory: str, filename: str, content: Any):
+        """写入文件"""
+        # 构建完整路径
+        full_dir = os.path.join(self.output_path, 'assets', directory)
+        self.ensure_directory_exists(full_dir)
+        
+        full_path = os.path.join(full_dir, filename)
+        
+        if isinstance(content, dict):
+            # 写入JSON文件
+            with open(full_path, 'w', encoding='utf-8') as f:
+                json.dump(content, f, indent=2, ensure_ascii=False)
+        elif isinstance(content, str):
+            # 写入文本文件
+            with open(full_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        else:
+            # 写入二进制文件
+            with open(full_path, 'wb') as f:
+                f.write(content)
+        
+        logger()['debug'](f"写入文件: {full_path}")
+    
+    def copy_file(self, source_path: str, target_path: str):
+        """复制文件"""
+        self.ensure_directory_exists(os.path.dirname(target_path))
+        shutil.copy2(source_path, target_path)
+        logger()['debug'](f"复制文件: {source_path} -> {target_path}")
+
+# 本地实现converters类
+class Converters:
+    """资源转换器类"""
+    
+    @staticmethod
+    def convert_sprite_atlas(sprite_frames: Dict[str, Any]):
+        """
+        转换精灵图集
+        """
+        logger()['info'](f"转换精灵图集，共 {len(sprite_frames)} 个精灵帧")
+        # 遍历所有精灵帧
+        for key, frame_data in sprite_frames.items():
+            # 处理精灵帧数据
+            if isinstance(frame_data, dict):
+                Converters.process_sprite_frame_data(key, frame_data)
+    
+    @staticmethod
+    def process_sprite_frame_data(key: str, frame_data: Dict[str, Any]):
+        """
+        处理单个精灵帧数据
+        """
+        # 这里可以添加精灵帧数据处理逻辑
+        logger()['debug'](f"处理精灵帧数据: {key}")
+    
+    @staticmethod
+    def json_to_plist(file_name: str):
+        """
+        将JSON转换为PLIST格式
+        
+        Args:
+            file_name (str): 文件名（不含扩展名）
+        """
+        try:
+            # 读取JSON文件
+            with open(f"{file_name}.json", 'r', encoding='utf-8') as f:
+                data = f.read()
+            json_data = json.loads(data)
+            
+            # 添加必要的属性
+            enhanced_json = Converters.add_properties(json_data, file_name)
+            
+            # 创建XML文档
+            xml = Converters.create_xml_document(enhanced_json)
+            
+            # 写入PLIST文件
+            with open(f"{file_name}.plist", 'w', encoding='utf-8') as f:
+                f.write(xml)
+            
+            logger()['debug'](f"转换完成: {file_name}.json -> {file_name}.plist")
+        except Exception as e:
+            logger()['exception'](f"转换文件 {file_name} 时出错", e)
+    
+    @staticmethod
+    def create_xml_document(json_data: Dict[str, Any]) -> str:
+        """
+        创建XML文档
+        
+        Args:
+            json_data (dict): JSON对象
+            
+        Returns:
+            str: XML文档字符串
+        """
+        xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+               '<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+               '<plist version="1.0">',
+               '<dict>']
+        
+        # 递归处理JSON数据
+        Converters._parse_to_xml(xml, json_data)
+        
+        xml.extend(['</dict>', '</plist>'])
+        return '\n'.join(xml)
+    
+    @staticmethod
+    def _parse_to_xml(xml: List[str], data: Any, indent: int = 1):
+        """
+        递归将JSON数据转换为XML
+        
+        Args:
+            xml (list): XML字符串列表
+            data (Any): 要转换的数据
+            indent (int): 缩进级别
+        """
+        indent_str = '    ' * indent
+        
+        if isinstance(data, dict):
+            for key, value in data.items():
+                xml.append(f'{indent_str}<key>{key}</key>')
+                
+                if isinstance(value, dict):
+                    # 处理特殊格式的对象
+                    if key in ['frame', 'offset', 'sourceColorRect', 
+                              'sourceSize', 'spriteSourceSize']:
+                        Converters._parse_to_json(xml, value, indent)
+                    else:
+                        # 处理一般对象
+                        xml.append(f'{indent_str}<dict>')
+                        Converters._parse_to_xml(xml, value, indent + 1)
+                        xml.append(f'{indent_str}</dict>')
+                elif isinstance(value, list):
+                    # 处理列表
+                    xml.append(f'{indent_str}<array>')
+                    for item in value:
+                        if isinstance(item, dict):
+                            xml.append(f'{indent_str}    <dict>')
+                            Converters._parse_to_xml(xml, item, indent + 2)
+                            xml.append(f'{indent_str}    </dict>')
+                        else:
+                            Converters._to_xml(xml, item, indent + 1)
+                    xml.append(f'{indent_str}</array>')
+                else:
+                    # 处理基本类型值
+                    Converters._to_xml(xml, value, indent)
+        
+    @staticmethod
+    def _parse_to_json(xml: List[str], value: Dict[str, Any], indent: int):
+        """
+        将对象解析为特定格式的JSON字符串
+        
+        Args:
+            xml (list): XML字符串列表
+            value (dict): 值对象
+            indent (int): 缩进级别
+        """
+        indent_str = '    ' * indent
+        
+        if 'x' in value and 'w' in value:
+            # 包含位置和尺寸的对象
+            json_str = f'{{{{{value["x"]},{value["y"]}}},{{{value["w"]},{value["h"]}}}}}'
+        else:
+            # 仅包含尺寸的对象
+            json_str = f'{{{value["w"]},{value["h"]}}}'
+        
+        xml.append(f'{indent_str}<string>{json_str}</string>')
+    
+    @staticmethod
+    def _to_xml(xml: List[str], value: Any, indent: int):
+        """
+        将基本类型的键值对写入XML
+        
+        Args:
+            xml (list): XML字符串列表
+            value (Any): 值
+            indent (int): 缩进级别
+        """
+        indent_str = '    ' * indent
+        
+        if isinstance(value, bool):
+            # 布尔值
+            xml.append(f'{indent_str}<{str(value).lower()}/>')
+        elif isinstance(value, int) or isinstance(value, float):
+            # 数字
+            xml.append(f'{indent_str}<integer>{value}</integer>')
+        else:
+            # 字符串或其他
+            xml.append(f'{indent_str}<string>{value}</string>')
+    
+    @staticmethod
+    def add_properties(json_data: Dict[str, Any], file_name: str) -> Dict[str, Any]:
+        """
+        添加必要的属性到JSON对象
+        
+        Args:
+            json_data (dict): JSON对象
+            file_name (str): 文件名
+            
+        Returns:
+            dict: 增强后的JSON对象
+        """
+        # 创建元数据
+        metadata = {
+            "format": 3,
+            "pixelFormat": "RGBA8888",
+            "premultiplyAlpha": False,
+            "realTextureFileName": f"{os.path.basename(file_name)}.png",
+            "size": Converters.get_image_size(file_name),
+            "smartupdate": f"$TexturePacker:SmartUpdate:{UuidUtils.generate_uuid()}:{UuidUtils.generate_uuid()}:{UuidUtils.generate_uuid()}$",
+            "textureFileName": f"{os.path.basename(file_name)}.png"
+        }
+        
+        # 将元数据添加到JSON
+        result = {**json_data}
+        result['metadata'] = metadata
+        
+        # 删除旧的元数据
+        if 'meta' in result:
+            del result['meta']
+        
+        return result
+    
+    @staticmethod
+    def get_image_size(file_name: str) -> str:
+        """
+        获取图像尺寸
+        
+        Args:
+            file_name (str): 文件名
+            
+        Returns:
+            str: 格式化的尺寸字符串
+        """
+        try:
+            from PIL import Image
+            with Image.open(f"{file_name}.png") as img:
+                width, height = img.size
+            return f'{{{width},{height}}}'
+        except Exception as e:
+            logger()['exception'](f"读取图像文件 {file_name}.png 时出错", e)
+            return '{0,0}'
 
 class ResourceProcessor:
     """
-    资源处理器类
+    资源处理器类 - 参考Cocos Creator Web逆向工程实现
     """
     
     def __init__(self):
-        """初始化"""
-        self.assets = []
-        self.prefabs = []
-        self.scenes = []
-        self.textures = []
+        # 数据存储
+        self.file_list: List[str] = []
+        self.file_map: Dict[str, str] = {}  # key: filename_without_ext, value: full_path
+        self.cache_read_list: List[str] = []
+        self.cache_write_list: List[str] = []
+        self.node_data: Dict[str, Any] = {}
+        
+        # 资源映射
+        self.scene_assets: List[Any] = []
+        self.sprite_frames: Dict[str, Any] = {}
+        self.audio_clips: List[Any] = []
+        self.animations: List[Any] = []
+        self.text_assets: List[Any] = []
+        
+        # 配置
+        self.settings: Dict[str, Any] = {}
+        self.paths: Dict[str, str] = {}
+        self.file_manager: Optional[FileManager] = None
     
-    def processResources(self, paths=None):
+    def process_resources(self, paths: Dict[str, str], settings: Dict[str, Any]):
         """
-        处理资源文件
+        处理资源文件的主入口
         
         Args:
             paths (dict): 路径字典
+            settings (dict): 全局设置
         """
-        import shutil
-        
         logger()['info']("开始处理资源...")
         
-        if not paths:
-            logger()['warn']("未提供路径信息，无法处理资源")
-            return
-        
-        logger()['debug'](f"资源处理: paths={paths}")
-        
-        # 尝试多种资源位置目录，包括编译后的资源结构
-        asset_path_candidates = [
-            paths.get('res', ''),  # 编译后的res目录
-            os.path.join(paths.get('source', ''), 'res'),  # 源代码res目录
-            os.path.join(paths.get('source', ''), 'assets'),  # Cocos Creator assets目录
-            paths.get('assets', '')  # 直接提供的assets目录
-        ]
-        
-        # 过滤出存在的资源目录
-        valid_asset_paths = []
-        for path in asset_path_candidates:
-            if path and os.path.exists(path):
-                valid_asset_paths.append(path)
-                logger()['info'](f"找到资源目录: {path}")
-        
-        if not valid_asset_paths:
-            logger()['warn']("未找到资源目录")
-            return
-        
-        # 处理配置文件，查找资源映射
-        config_dirs = []
-        for asset_path in valid_asset_paths:
-            config_dir = os.path.dirname(asset_path)
-            if os.path.exists(config_dir):
-                config_dirs.append(config_dir)
-        
-        # 查找并处理资源配置文件
-        prefab_type_index = None
-        scene_type_index = None
-        paths_dict = {}
-        
-        for config_dir in config_dirs:
-            config_files = []
-            # 查找所有可能的配置文件，只处理JSON文件
-            for root, dirs, files in os.walk(config_dir):
-                for file in files:
-                    if file.endswith('.json'):
-                        config_files.append(os.path.join(root, file))
+        try:
+            self.reset_state()
+            self.paths = paths
+            self.settings = settings
+            self.file_manager = FileManager(paths.get('output', ''))
             
-            for config_file_path in config_files:
-                try:
-                    logger()['info'](f"处理资源配置文件: {config_file_path}")
-                    with open(config_file_path, 'r', encoding='utf-8') as f:
-                        config_content = json.load(f)
-                    
-                    # 查找资源映射和类型索引
-                    if isinstance(config_content, dict):
-                        if 'paths' in config_content:
-                            paths_dict.update(config_content['paths'])
-                        if 'types' in config_content:
-                            for idx, type_info in enumerate(config_content['types']):
-                                if isinstance(type_info, str):
-                                    if 'prefab' in type_info.lower():
-                                        prefab_type_index = idx
-                                    elif 'scene' in type_info.lower():
-                                        scene_type_index = idx
-                    
-                    if prefab_type_index is not None:
-                        logger()['info'](f"找到Prefab类型索引: {prefab_type_index}")
-                        logger()['info'](f"Config文件目录: {config_dir}")
-                        
-                        # 收集所有Prefab资源
-                        self._collectPrefabResources(config_content, config_dir, paths_dict)
-                    
-                    if scene_type_index is not None:
-                        logger()['info'](f"找到Scene类型索引: {scene_type_index}")
-                        logger()['info'](f"Config文件目录: {config_dir}")
-                        
-                        # 收集所有Scene资源
-                        self._collectSceneResources(config_content, config_dir, paths_dict)
-                    
-                    # 收集所有资源的路径映射
-                    logger()['info'](f"开始收集资源路径映射，Config目录: {config_dir}")
-                    for path_id, path_info in paths_dict.items():
-                        if isinstance(path_info, list) and len(path_info) > 0:
-                            resource_rel_path = path_info[0]
-                            if resource_rel_path.startswith('textures/'):
-                                # 图片资源
-                                resource_map = {
-                                    'path_id': path_id,
-                                    'resource_rel_path': resource_rel_path,
-                                    'type': 'texture',
-                                    'config_dir': config_dir
-                                }
-                                logger()['debug'](f"收集图片资源映射: {path_id} -> {resource_rel_path}")
-                                
-                                # 添加到需要创建的图片路径列表
-                                full_path = os.path.join(paths.get('output', ''), 'assets', resource_rel_path[:-4])
-                                self.textures.append({
-                                    'path': full_path + '.png',
-                                    'resource_map': resource_map,
-                                    'original_path': resource_rel_path
-                                })
-                                logger()['debug'](f"添加图片路径到创建列表: {full_path}.png")
-                            elif resource_rel_path.startswith('fonts/'):
-                                # 字体资源
-                                resource_map = {
-                                    'path_id': path_id,
-                                    'resource_rel_path': resource_rel_path,
-                                    'type': 'font',
-                                    'config_dir': config_dir
-                                }
-                                logger()['debug'](f"收集字体资源映射: {path_id} -> {resource_rel_path}")
-                                
-                                # 添加到需要创建的字体路径列表
-                                full_path = os.path.join(paths.get('output', ''), 'assets', resource_rel_path)
-                                self.assets.append({
-                                    'path': full_path,
-                                    'resource_map': resource_map,
-                                    'original_path': resource_rel_path
-                                })
-                                logger()['debug'](f"添加字体路径到创建列表: {full_path}")
-                            elif resource_rel_path.startswith('sound/'):
-                                # 音效资源
-                                resource_map = {
-                                    'path_id': path_id,
-                                    'resource_rel_path': resource_rel_path,
-                                    'type': 'sound',
-                                    'config_dir': config_dir
-                                }
-                                logger()['debug'](f"收集音效资源映射: {path_id} -> {resource_rel_path}")
-                                
-                                # 添加到需要创建的音效路径列表
-                                full_path = os.path.join(paths.get('output', ''), 'assets', resource_rel_path[:-4])
-                                self.assets.append({
-                                    'path': full_path + '.mp3',
-                                    'resource_map': resource_map,
-                                    'original_path': resource_rel_path
-                                })
-                                logger()['debug'](f"添加音效路径到创建列表: {full_path}.mp3")
-                            elif resource_rel_path.startswith('spine/'):
-                                # 骨骼动画资源
-                                resource_map = {
-                                    'path_id': path_id,
-                                    'resource_rel_path': resource_rel_path,
-                                    'type': 'spine',
-                                    'config_dir': config_dir
-                                }
-                                logger()['debug'](f"收集骨骼动画资源映射: {path_id} -> {resource_rel_path}")
-                                
-                                # 添加到需要创建的骨骼动画路径列表
-                                full_path = os.path.join(paths.get('output', ''), 'assets', resource_rel_path)
-                                self.assets.append({
-                                    'path': full_path,
-                                    'resource_map': resource_map,
-                                    'original_path': resource_rel_path
-                                })
-                                logger()['debug'](f"添加骨骼动画路径到创建列表: {full_path}")
-                except Exception as e:
-                    logger()['debug'](f"跳过配置文件 {config_file_path}: {e}")
-                    continue
-        
-        # 处理资源文件
-        self._processResourceFiles(valid_asset_paths, paths)
-        
-        # 生成资源配置文件
-        self._generateResourceConfigs(paths)
-        
-        logger()['success']("资源处理完成")
+            # 保存资源根路径，用于计算相对路径
+            self.res_root = paths.get('res', '')
+            
+            # 读取资源文件
+            self.read_files(paths.get('res', ''), first=True)
+            
+            # 处理子包
+            self.process_subpackages()
+            
+            # 处理JSON文件
+            self.process_json_files()
+            
+            # 处理所有文件（包括非JSON文件）
+            self.process_all_files()
+            
+            # 转换为输出文件
+            self.convert_to_output_files()
+            
+            logger()['success']("资源处理完成")
+        except Exception as e:
+            logger()['exception']("处理资源文件时出错", e)
+            raise
     
-    def _collectPrefabResources(self, config_content, config_dir, paths_dict):
+    def processResources(self, paths: Dict[str, str]):
         """
-        收集Prefab资源
+        兼容方法，支持reverseEngine.py的调用
         
         Args:
-            config_content (dict): 配置文件内容
-            config_dir (str): 配置文件目录
-            paths_dict (dict): 资源路径字典
-        """
-        logger()['debug']("开始收集Prefab资源")
-        
-        # 查找prefabs数组
-        if 'prefabs' in config_content:
-            for prefab_info in config_content['prefabs']:
-                if isinstance(prefab_info, dict):
-                    self.prefabs.append({
-                        'info': prefab_info,
-                        'config_dir': config_dir
-                    })
-                    logger()['debug'](f"收集Prefab资源: {prefab_info.get('path', 'unknown')}")
-        
-        logger()['debug'](f"共收集到 {len(self.prefabs)} 个Prefab资源")
-    
-    def _collectSceneResources(self, config_content, config_dir, paths_dict):
-        """
-        收集Scene资源
-        
-        Args:
-            config_content (dict): 配置文件内容
-            config_dir (str): 配置文件目录
-            paths_dict (dict): 资源路径字典
-        """
-        logger()['debug']("开始收集Scene资源")
-        
-        # 查找scenes数组
-        if 'scenes' in config_content:
-            for scene_info in config_content['scenes']:
-                if isinstance(scene_info, dict):
-                    self.scenes.append({
-                        'info': scene_info,
-                        'config_dir': config_dir
-                    })
-                    logger()['debug'](f"收集Scene资源: {scene_info.get('path', 'unknown')}")
-        
-        logger()['debug'](f"共收集到 {len(self.scenes)} 个Scene资源")
-    
-    def _processResourceFiles(self, asset_paths, paths):
-        """
-        处理资源文件，实现真正的资源逆向，生成逆向后的prefab、图片、动画和音效
-        
-        Args:
-            asset_paths (list): 资源目录列表
             paths (dict): 路径字典
         """
-        logger()['info']("开始处理资源文件，进行真正的资源逆向...")
+        # 从全局变量获取settings
+        import sys
+        import os
         
-        output_assets_dir = os.path.join(paths.get('output', ''), 'assets')
+        # 添加项目根目录到sys.path
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
         
-        # 确保输出目录存在
-        os.makedirs(output_assets_dir, exist_ok=True)
+        # 导入全局变量
+        from main.core.reverseEngine import global_settings
         
-        # 处理不同类型的资源
-        for asset_path in asset_paths:
-            try:
-                logger()['info'](f"处理资源目录: {asset_path}")
-                
-                # 遍历资源目录
-                for root, dirs, files in os.walk(asset_path):
-                    for file in files:
-                        source_file = os.path.join(root, file)
-                        rel_path = os.path.relpath(source_file, asset_path)
-                        
-                        # 根据文件类型进行不同的处理
-                        file_ext = os.path.splitext(file)[1].lower()
-                        
-                        if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
-                            # 图片资源 - 直接使用，不需要转换
-                            self._processImageResource(source_file, rel_path, output_assets_dir)
-                        
-                        elif file_ext in ['.mp3', '.wav', '.ogg', '.flac']:
-                            # 音频资源 - 直接使用，不需要转换
-                            self._processAudioResource(source_file, rel_path, output_assets_dir)
-                        
-                        elif file_ext in ['.anim']:
-                            # 动画资源 - 需要转换
-                            self._processAnimationResource(source_file, rel_path, output_assets_dir)
-                        
-                        elif file_ext in ['.prefab']:
-                            # 预制体资源 - 需要转换
-                            self._processPrefabResource(source_file, rel_path, output_assets_dir)
-                        
-                        elif file_ext in ['.fire']:
-                            # 场景资源 - 需要转换
-                            self._processSceneResource(source_file, rel_path, output_assets_dir)
-                        
-                        elif file_ext in ['.json']:
-                            # JSON资源 - 检查是否为配置文件
-                            self._processJsonResource(source_file, rel_path, output_assets_dir)
-                        
-                        elif file_ext in ['.js', '.ts']:
-                            # 脚本资源 - 跳过，脚本处理在codeAnalyzer中进行
-                            logger()['debug'](f"跳过脚本资源: {rel_path}")
-                        
-                        else:
-                            # 其他资源 - 直接复制或跳过
-                            logger()['debug'](f"跳过未知资源类型: {rel_path}")
-                            
-            except Exception as e:
-                logger()['exception'](f"处理资源文件失败: {asset_path}", e)
-                continue
+        return self.process_resources(paths, global_settings)
     
-    def _processImageResource(self, source_file, rel_path, output_dir):
+    def reset_state(self):
+        """重置处理器状态"""
+        self.file_list = []
+        self.file_map = {}
+        self.cache_read_list = []
+        self.cache_write_list = []
+        self.node_data = {}
+        self.scene_assets = []
+        self.sprite_frames = {}
+        self.audio_clips = []
+        self.animations = []
+        self.text_assets = []
+        self.res_root = ""
+        # 保存文件的相对路径信息
+        self.file_relative_paths = {}  # key: full_path, value: relative_path
+    
+    def read_files(self, file_path: str, first: bool = False):
         """
-        处理图片资源
+        递归读取目录下所有文件
         
         Args:
-            source_file (str): 源文件路径
-            rel_path (str): 相对路径
-            output_dir (str): 输出目录
+            file_path (str): 文件路径
+            first (bool): 是否为首次调用
         """
-        import shutil
-        
         try:
-            # 构建输出路径
-            output_file = os.path.join(output_dir, rel_path)
+            if not os.path.exists(file_path):
+                logger()['warn'](f"目录不存在: {file_path}")
+                return
             
-            # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            for item in os.listdir(file_path):
+                full_path = os.path.join(file_path, item)
+                if os.path.isfile(full_path):
+                    self.file_list.append(full_path)
+                    # 保存相对路径
+                    if self.res_root:
+                        relative_path = os.path.relpath(full_path, self.res_root)
+                        self.file_relative_paths[full_path] = relative_path
+                    # 以文件名（不含扩展名）为key
+                    filename_without_ext = os.path.splitext(item)[0]
+                    self.file_map[filename_without_ext] = full_path
+                else:
+                    self.read_files(full_path, first=False)
             
-            # 复制图片文件
-            shutil.copy2(source_file, output_file)
-            logger()['info'](f"处理图片资源: {rel_path}")
-            
-            # 生成.meta文件
-            self._generateMetaFile(output_file)
-            
+            if first:
+                logger()['info'](f"读取到 {len(self.file_list)} 个资源文件")
         except Exception as e:
-            logger()['exception'](f"处理图片资源失败: {rel_path}", e)
+            logger()['exception'](f"读取目录 {file_path} 时出错", e)
+            raise
     
-    def _processAudioResource(self, source_file, rel_path, output_dir):
+    def process_subpackages(self):
+        """处理子包"""
+        if self.settings and self.settings.get("subpackages"):
+            subpackages_path = os.path.join(os.path.dirname(self.paths.get('res', '')), 'subpackages')
+            if os.path.exists(subpackages_path):
+                self.read_files(subpackages_path, first=False)
+                logger()['debug'](f"处理子包: {subpackages_path}")
+            else:
+                logger()['warn'](f"子包路径不存在: {subpackages_path}")
+    
+    def process_json_files(self):
+        """处理JSON文件"""
+        for curr_path in self.file_list:
+            if curr_path.endswith('.json'):
+                try:
+                    with open(curr_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    key = os.path.splitext(os.path.basename(curr_path))[0]
+                    self.node_data = data
+                    self.process_data(key, data)
+                except Exception as e:
+                    logger()['exception'](f"处理JSON文件 {curr_path} 时出错", e)
+    
+    def process_all_files(self):
+        """处理所有文件，包括非JSON文件，保持原始目录结构"""
+        logger()['info'](f"开始处理所有文件，共 {len(self.file_list)} 个文件")
+        
+        # 遍历所有文件
+        for curr_path in self.file_list:
+            # 跳过JSON文件，已经处理过了
+            if curr_path.endswith('.json'):
+                continue
+            
+            try:
+                # 获取相对路径
+                relative_path = self.file_relative_paths.get(curr_path, os.path.basename(curr_path))
+                
+                # 构建输出路径，保持原始目录结构
+                output_path = os.path.join(self.paths.get('output', ''), 'assets', relative_path)
+                
+                # 添加到复制列表
+                self.cache_read_list.append(curr_path)
+                self.cache_write_list.append(output_path)
+                
+                logger()['debug'](f"添加文件到处理列表: {curr_path} -> {output_path}")
+            except Exception as e:
+                logger()['exception'](f"处理文件 {curr_path} 时出错", e)
+    
+    def process_data(self, key: str, data: Any):
+        """
+        处理数据
+        
+        Args:
+            key (str): 键名
+            data (Any): 要处理的数据
+        """
+        if not self.settings:
+            logger()['warn']("全局设置为空，跳过数据处理")
+            return
+        
+        processed_data = self.reveal_data(data)
+        self.write_processed_data(processed_data, key)
+    
+    def reveal_data(self, json_object: Any) -> Any:
+        """
+        解析数据对象
+        
+        Args:
+            json_object (Any): 要解析的JSON对象
+        
+        Returns:
+            Any: 解析后的对象
+        """
+        # 这里可以添加数据解析逻辑
+        return json_object
+    
+    def write_processed_data(self, data: Any, key: str):
+        """
+        写入处理后的数据
+        
+        Args:
+            data (Any): 处理后的数据
+            key (str): 键名
+        """
+        if isinstance(data, dict) and data.get("__type__"):
+            self.process_type_data(data, key)
+        else:
+            for i, value in data.items():
+                if isinstance(value, dict) and value.get('__type__'):
+                    self.process_type_object(value.get('__type__'), data, i, key)
+                elif isinstance(value, list):
+                    # 处理列表类型
+                    for item in value:
+                        if isinstance(item, dict) and item.get('__type__'):
+                            self.process_type_object(item.get('__type__'), value, i, key)
+    
+    def process_type_data(self, data: Dict[str, Any], key: str):
+        """
+        处理特定类型的数据
+        
+        Args:
+            data (dict): 数据对象
+            key (str): 键名
+        """
+        data_type = data.get("__type__")
+        
+        if data_type == "cc.AudioClip":
+            self.process_audio_clip(data, key)
+        elif data_type == "cc.TextAsset":
+            self.process_text_asset(data, key)
+        elif data_type == "cc.AnimationClip":
+            self.process_animation_clip(data, key)
+        elif data_type == "cc.SpriteFrame":
+            self.process_sprite_frame_data(data, key)
+        elif data_type == "cc.Texture2D":
+            self.process_texture_2d(data, key)
+        elif data_type == "cc.Prefab":
+            self.process_prefab(data, key)
+        else:
+            logger()['debug'](f"未处理的数据类型: {data_type}")
+    
+    def process_type_object(self, type_name: str, data: Any, index: str, key: str):
+        """
+        处理特定类型的对象
+        
+        Args:
+            type_name (str): 对象类型
+            data (Any): 数据对象
+            index (str): 索引
+            key (str): 键名
+        """
+        if type_name == 'cc.SceneAsset':
+            self.process_scene_asset(data, index, key)
+        elif type_name == 'cc.SpriteFrame':
+            self.process_sprite_frame(data, index, key)
+        else:
+            logger()['debug'](f"未处理的对象类型: {type_name}")
+    
+    def process_audio_clip(self, data: Dict[str, Any], key: str):
         """
         处理音频资源
         
         Args:
-            source_file (str): 源文件路径
-            rel_path (str): 相对路径
-            output_dir (str): 输出目录
+            data (dict): 音频数据
+            key (str): 键名
         """
-        import shutil
+        name = f"{data.get('_name', '')}{data.get('_native', '')}"
+        mkdir = "Audio"
+        meta_uuid = key
         
-        try:
-            # 构建输出路径
-            output_file = os.path.join(output_dir, rel_path)
+        meta_data = {
+            "ver": "1.2.7",
+            "uuid": meta_uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": False,
+            "readonly": False,
+            "subMetas": {}
+        }
+        
+        if meta_uuid in self.file_map:
+            write_path = name
+            curr_path = self.file_map[meta_uuid]
             
-            # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            
-            # 复制音频文件
-            shutil.copy2(source_file, output_file)
-            logger()['info'](f"处理音频资源: {rel_path}")
-            
-            # 生成.meta文件
-            self._generateMetaFile(output_file)
-            
-        except Exception as e:
-            logger()['exception'](f"处理音频资源失败: {rel_path}", e)
+            output_path = os.path.join(self.paths.get('output', ''), 'assets', mkdir, write_path)
+            self.cache_read_list.append(curr_path)
+            self.cache_write_list.append(output_path)
+            del self.file_map[meta_uuid]
+        
+        # 写入.meta文件
+        self.file_manager.write_file(mkdir, f"{name}.meta", meta_data)
+        self.audio_clips.append(data)
+        logger()['info'](f"处理音频资源: {name}")
     
-    def _processAnimationResource(self, source_file, rel_path, output_dir):
+    def process_text_asset(self, data: Dict[str, Any], key: str):
+        """
+        处理文本资源
+        
+        Args:
+            data (dict): 文本数据
+            key (str): 键名
+        """
+        name = f"{data.get('_name', '')}.json"
+        mkdir = "resource"
+        meta_uuid = key
+        
+        meta_data = {
+            "ver": "1.2.7",
+            "uuid": meta_uuid,
+            "asyncLoadAssets": False,
+            "subMetas": {}
+        }
+        
+        # 写入资源文件和meta文件
+        self.file_manager.write_file(mkdir, name, data)
+        self.file_manager.write_file(mkdir, f"{name}.meta", meta_data)
+        self.text_assets.append(data)
+        logger()['info'](f"处理文本资源: {name}")
+    
+    def process_animation_clip(self, data: Dict[str, Any], key: str):
         """
         处理动画资源
         
         Args:
-            source_file (str): 源文件路径
-            rel_path (str): 相对路径
-            output_dir (str): 输出目录
+            data (dict): 动画数据
+            key (str): 键名
         """
-        try:
-            # 构建输出路径
-            output_file = os.path.join(output_dir, rel_path)
-            
-            # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            
-            # 读取动画文件
-            with open(source_file, 'r', encoding='utf-8') as f:
-                anim_data = f.read()
-            
-            # 写入动画文件
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(anim_data)
-            
-            logger()['info'](f"处理动画资源: {rel_path}")
-            
-            # 生成.meta文件
-            self._generateMetaFile(output_file)
-            
-        except Exception as e:
-            logger()['exception'](f"处理动画资源失败: {rel_path}", e)
-    
-    def _processPrefabResource(self, source_file, rel_path, output_dir):
-        """
-        处理预制体资源
+        name = data.get('_name', '')
+        mkdir = "Animation"
+        filename = f"{name}.anim"
+        meta_uuid = key
         
-        Args:
-            source_file (str): 源文件路径
-            rel_path (str): 相对路径
-            output_dir (str): 输出目录
-        """
-        try:
-            # 构建输出路径
-            output_file = os.path.join(output_dir, rel_path)
-            
-            # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            
-            # 读取预制体文件
-            with open(source_file, 'r', encoding='utf-8') as f:
-                prefab_data = f.read()
-            
-            # 写入预制体文件
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(prefab_data)
-            
-            logger()['info'](f"处理预制体资源: {rel_path}")
-            
-            # 生成.meta文件
-            self._generateMetaFile(output_file)
-            
-        except Exception as e:
-            logger()['exception'](f"处理预制体资源失败: {rel_path}", e)
+        # 写入动画文件
+        self.file_manager.write_file(mkdir, filename, data)
+        self.animations.append(data)
+        
+        meta_data = {
+            "ver": "1.2.7",
+            "uuid": meta_uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": False,
+            "readonly": False,
+            "subMetas": {}
+        }
+        
+        # 写入.meta文件
+        self.file_manager.write_file(mkdir, f"{filename}.meta", meta_data)
+        logger()['info'](f"处理动画资源: {name}")
     
-    def _processSceneResource(self, source_file, rel_path, output_dir):
+    def process_scene_asset(self, data: Any, index: str, key: str):
         """
         处理场景资源
         
         Args:
-            source_file (str): 源文件路径
-            rel_path (str): 相对路径
-            output_dir (str): 输出目录
+            data (Any): 场景数据
+            index (str): 索引
+            key (str): 键名
         """
-        try:
-            # 构建输出路径
-            output_file = os.path.join(output_dir, rel_path)
-            
-            # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            
-            # 读取场景文件
-            with open(source_file, 'r', encoding='utf-8') as f:
-                scene_data = f.read()
-            
-            # 写入场景文件
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(scene_data)
-            
-            logger()['info'](f"处理场景资源: {rel_path}")
-            
-            # 生成.meta文件
-            self._generateMetaFile(output_file)
-            
-        except Exception as e:
-            logger()['exception'](f"处理场景资源失败: {rel_path}", e)
+        if isinstance(data, list) and len(data) > 0:
+            scene_name = data[0].get('_name', 'Scene')
+        else:
+            scene_name = "Scene"
+        
+        filename = f"{scene_name}.fire"
+        mkdir = "Scene"
+        
+        # 写入场景文件
+        self.file_manager.write_file(mkdir, filename, data)
+        self.scene_assets.append(json.dumps(data))
+        
+        # 查找匹配的node数据并生成meta文件
+        for node_key, node_value in self.node_data.items():
+            if isinstance(node_value, list) and len(node_value) > 0:
+                node_name = node_value[0].get('_name', '')
+                if node_name == scene_name:
+                    # 生成UUID
+                    meta_uuid = self.create_library(node_key, key)
+                    meta_data = {
+                        "ver": "1.2.7",
+                        "uuid": meta_uuid,
+                        "optimizationPolicy": "AUTO",
+                        "asyncLoadAssets": False,
+                        "readonly": False,
+                        "subMetas": {}
+                    }
+                    # 写入.meta文件
+                    self.file_manager.write_file(mkdir, f"{filename}.meta", meta_data)
+                    break
+        
+        logger()['info'](f"处理场景资源: {scene_name}")
     
-    def _processJsonResource(self, source_file, rel_path, output_dir):
+    def process_sprite_frame(self, data: Any, index: str, key: str):
         """
-        处理JSON资源
+        处理精灵帧资源
         
         Args:
-            source_file (str): 源文件路径
-            rel_path (str): 相对路径
-            output_dir (str): 输出目录
+            data (Any): 精灵帧数据
+            index (str): 索引
+            key (str): 键名
         """
-        try:
-            # 构建输出路径
-            output_file = os.path.join(output_dir, rel_path)
-            
-            # 确保输出目录存在
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            
-            # 读取JSON文件
-            with open(source_file, 'r', encoding='utf-8') as f:
-                json_data = f.read()
-            
-            # 写入JSON文件
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(json_data)
-            
-            logger()['info'](f"处理JSON资源: {rel_path}")
-            
-            # 生成.meta文件
-            self._generateMetaFile(output_file)
-            
-        except Exception as e:
-            logger()['exception'](f"处理JSON资源失败: {rel_path}", e)
+        self.sprite_frames[key] = data
+        logger()['debug'](f"处理精灵帧资源: {key}")
     
-    def _generateMetaFile(self, file_path):
+    def process_sprite_frame_data(self, data: Dict[str, Any], key: str):
         """
-        为资源文件生成.meta文件
+        处理精灵帧数据
         
         Args:
-            file_path (str): 资源文件路径
+            data (dict): 精灵帧数据
+            key (str): 键名
         """
-        import json
-        import uuid
+        name = data.get('_name', '') or f"sprite_frame_{key}"
+        mkdir = "Textures"
+        meta_uuid = key
         
-        try:
-            meta_file_path = file_path + '.meta'
-            
-            # 生成.meta文件内容
-            meta_content = {
-                "ver": "1.0.3",
-                "uuid": str(uuid.uuid4()),
-                "asyncLoadAssets": False,
-                "subMetas": {}
-            }
-            
-            # 根据文件类型添加特定配置
-            file_ext = os.path.splitext(file_path)[1].lower()
-            
-            if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
-                meta_content['texture'] = {
-                    "type": 0,
-                    "aniso": 1,
-                    "filterMode": 1,
-                    "wrapMode": 1,
-                    "genMipmaps": True,
-                    "premultiplyAlpha": True
-                }
-            elif file_ext in ['.mp3', '.wav', '.ogg', '.flac']:
-                meta_content['audio'] = {
-                    "loadMode": 0,
-                    "preload": False
-                }
-            elif file_ext in ['.anim']:
-                meta_content['animation'] = {
-                    "speed": 1.0,
-                    "sample": 60,
-                    "wrapMode": 1
-                }
-            elif file_ext in ['.prefab']:
-                meta_content['prefab'] = {
-                    "asyncLoadAssets": False,
-                    "optimizeBatchInEditor": True
-                }
-            elif file_ext in ['.fire']:
-                meta_content['scene'] = {
-                    "autoStart": True
-                }
-            
-            # 写入.meta文件
-            with open(meta_file_path, 'w', encoding='utf-8') as f:
-                f.write(json.dumps(meta_content, indent=2, ensure_ascii=False))
-            
-            logger()['debug'](f"生成meta文件: {os.path.basename(meta_file_path)}")
-            
-        except Exception as e:
-            logger()['exception'](f"生成meta文件失败: {file_path}", e)
-    
-    def _generateResourceConfigs(self, paths):
-        """
-        生成资源配置文件
-        
-        Args:
-            paths (dict): 路径字典
-        """
-        logger()['info']("开始生成资源配置文件")
-        
-        output_dir = paths.get('output', '')
-        
-        # 生成资源映射配置
-        resource_map_config = {
-            'textures': self.textures,
-            'assets': self.assets,
-            'prefabs': self.prefabs,
-            'scenes': self.scenes
+        # 生成精灵帧meta数据
+        meta_data = {
+            "ver": "1.2.7",
+            "uuid": meta_uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": False,
+            "readonly": False,
+            "subMetas": {}
         }
         
-        resource_map_path = os.path.join(output_dir, 'resource_map.json')
+        # 写入精灵帧文件
+        self.file_manager.write_file(mkdir, f"{name}.plist", {})
+        self.file_manager.write_file(mkdir, f"{name}.plist.meta", meta_data)
+        
+        self.sprite_frames[key] = data
+        logger()['info'](f"处理精灵帧数据: {name}")
+    
+    def process_texture_2d(self, data: Dict[str, Any], key: str):
+        """
+        处理纹理资源
+        
+        Args:
+            data (dict): 纹理数据
+            key (str): 键名
+        """
+        name = data.get('_name', '') or f"texture_{key}"
+        _native = data.get('_native', '')
+        if _native:
+            name = name + os.path.splitext(_native)[1]
+        
+        mkdir = "Textures"
+        meta_uuid = key
+        
+        # 生成纹理meta数据
+        meta_data = {
+            "ver": "1.2.7",
+            "uuid": meta_uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": False,
+            "readonly": False,
+            "subMetas": {}
+        }
+        
+        # 处理纹理文件
+        if meta_uuid in self.file_map:
+            curr_path = self.file_map[meta_uuid]
+            output_path = os.path.join(self.paths.get('output', ''), 'assets', mkdir, name)
+            
+            self.cache_read_list.append(curr_path)
+            self.cache_write_list.append(output_path)
+            del self.file_map[meta_uuid]
+        
+        # 写入meta文件
+        self.file_manager.write_file(mkdir, f"{name}.meta", meta_data)
+        logger()['info'](f"处理纹理资源: {name}")
+    
+    def process_prefab(self, data: Dict[str, Any], key: str):
+        """
+        处理预制体资源
+        
+        Args:
+            data (dict): 预制体数据
+            key (str): 键名
+        """
+        name = data.get('_name', '') or f"prefab_{key}"
+        mkdir = "Prefabs"
+        meta_uuid = key
+        
+        # 生成预制体meta数据
+        meta_data = {
+            "ver": "1.2.7",
+            "uuid": meta_uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": False,
+            "readonly": False,
+            "subMetas": {}
+        }
+        
+        # 写入预制体文件
+        self.file_manager.write_file(mkdir, f"{name}.prefab", data)
+        self.file_manager.write_file(mkdir, f"{name}.prefab.meta", meta_data)
+        logger()['info'](f"处理预制体资源: {name}")
+    
+    def create_library(self, index: str, key: str) -> str:
+        """
+        创建库
+        
+        Args:
+            index (str): 索引
+            key (str): 键名
+        
+        Returns:
+            str: 生成的UUID
+        """
+        if self.settings and self.settings.get('uuids'):
+            return self.settings['uuids'].get(key, UuidUtils.generate_uuid())
+        return UuidUtils.generate_uuid()
+    
+    def convert_to_output_files(self):
+        """
+        转换为输出文件
+        """
+        # 复制文件
+        self.copy_files()
+        
+        # 转换特殊资源
+        Converters.convert_sprite_atlas(self.sprite_frames)
+        
+        logger()['info'](f"处理了 {len(self.cache_read_list)} 个资源文件")
+    
+    def copy_files(self):
+        """
+        复制文件到输出目录
+        """
         try:
-            with open(resource_map_path, 'w', encoding='utf-8') as f:
-                json.dump(resource_map_config, f, indent=2, ensure_ascii=False)
-            logger()['success'](f"生成资源映射配置文件: {resource_map_path}")
+            for i in range(len(self.cache_read_list)):
+                source_path = self.cache_read_list[i]
+                target_path = self.cache_write_list[i]
+                
+                # 确保目标目录存在
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                
+                # 复制文件
+                shutil.copy2(source_path, target_path)
+                logger()['debug'](f"复制文件: {os.path.basename(source_path)} -> {target_path}")
         except Exception as e:
-            logger()['exception'](f"生成资源映射配置文件失败", e)
-    
-    def getAssets(self):
-        """
-        获取处理后的资源列表
-        
-        Returns:
-            list: 资源列表
-        """
-        return self.assets
-    
-    def getPrefabs(self):
-        """
-        获取处理后的Prefab列表
-        
-        Returns:
-            list: Prefab列表
-        """
-        return self.prefabs
-    
-    def getScenes(self):
-        """
-        获取处理后的Scene列表
-        
-        Returns:
-            list: Scene列表
-        """
-        return self.scenes
+            logger()['exception']("复制文件时出错", e)
+            raise
     
     def getResourceStats(self):
         """
-        获取资源统计信息
+        获取资源处理统计信息
         
         Returns:
-            dict: 资源统计信息，包含total等字段
+            dict: 资源统计信息
         """
-        total = len(self.assets) + len(self.prefabs) + len(self.scenes) + len(self.textures)
         return {
-            'total': total,
-            'assets': len(self.assets),
-            'prefabs': len(self.prefabs),
-            'scenes': len(self.scenes),
-            'textures': len(self.textures)
+            'total': len(self.file_list),
+            'audio': len(self.audio_clips),
+            'text': len(self.text_assets),
+            'animation': len(self.animations),
+            'scene': len(self.scene_assets),
+            'sprite_frame': len(self.sprite_frames),
+            'processed': len(self.cache_read_list)
         }
-    
-    def convertCompiledScene(self, scene_info, paths):
-        """
-        将编译后的场景资源转换为.fire格式
-        Args:
-            scene_info (dict): 场景资源信息字典
-            paths (dict): 路径字典
-        """
-        from utils.fileManager import fileManager
-        import os
-        import json
-        import uuid as uuid_module
-        
-        logger()['info']("开始转换编译后的Scene资源...")
-        
-        source_res_path = paths.get('res', '')
-        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
-        
-        # 遍历所有场景资源
-        for scene_path, info in scene_info.items():
-            try:
-                logger()['info'](f"处理场景: {scene_path}")
-                
-                # 创建输出目录结构
-                scene_output_dir = os.path.join(output_assets_path, 'scenes')
-                os.makedirs(scene_output_dir, exist_ok=True)
-                
-                # 生成.fire场景文件
-                scene_file_path = os.path.join(scene_output_dir, os.path.basename(scene_path) + '.fire')
-                
-                # 创建基本场景结构
-                scene_data = {
-                    "ccType": "cc.SceneAsset",
-                    "_name": os.path.basename(scene_path),
-                    "_objFlags": 0,
-                    "_native": "",
-                    "_uuid": str(uuid_module.uuid4()),
-                    "_id": 0,
-                    "_scene": {
-                        "ccType": "cc.Scene",
-                        "_name": os.path.basename(scene_path),
-                        "_objFlags": 0,
-                        "_components": [],
-                        "_persistRootNode": None,
-                        "gravity": [0, -320],
-                        "name": os.path.basename(scene_path),
-                        "autoReleaseAssets": True,
-                        "_physicsManager": {
-                            "enable": False,
-                            "debugDrawFlags": 0,
-                            "gravity": [0, -320]
-                        },
-                        "_collisionManager": {
-                            "enable": False,
-                            "enableDebugDraw": False,
-                            "enableDrawBoundingBox": False
-                        },
-                        "_physics3DManager": {
-                            "enable": False,
-                            "autoSimulation": True
-                        },
-                        "_renderSettings": {
-                            "defaultSkybox": None,
-                            "ambient": [0.2, 0.2, 0.2, 1.0],
-                            "fog": {
-                                "enabled": False,
-                                "color": [0.8, 0.8, 0.8, 1.0],
-                                "near": 0.01,
-                                "far": 1000.0,
-                                "density": 0.001,
-                                "mode": 1
-                            },
-                            "shadows": {
-                                "enabled": False,
-                                "type": 0,
-                                "distance": 1000.0,
-                                "bias": 0.05,
-                                "normalBias": 0.4,
-                                "mapSize": 1024
-                            },
-                            "mainLight": {
-                                "useMainLight": True,
-                                "direction": [-0.5, -0.5, -1.0],
-                                "intensity": 0.7,
-                                "color": [1.0, 1.0, 1.0, 1.0]
-                            }
-                        },
-                        "_cameraSettings": {
-                            "defaultClearColor": [0.2, 0.3, 0.4, 1.0],
-                            "defaultClearFlags": 15,
-                            "defaultCamera": None
-                        }
-                    }
-                }
-                
-                # 写入场景文件
-                fileManager.writeFile(scene_file_path, json.dumps(scene_data, indent=2))
-                logger()['success'](f"生成场景文件: {scene_file_path}")
-            except Exception as e:
-                logger()['exception'](f"转换场景资源失败: {scene_path}", e)
-    
-    def convertCompiledPrefab(self, prefab_info, paths):
-        """
-        将编译后的预制体资源转换为.prefab格式
-        
-        Args:
-            prefab_info (dict): 预制体资源信息字典
-            paths (dict): 路径字典
-        """
-        from utils.fileManager import fileManager
-        import os
-        import json
-        import uuid as uuid_module
-        
-        logger()['info']("开始转换编译后的Prefab资源...")
-        
-        source_res_path = paths.get('res', '')
-        output_assets_path = os.path.join(paths.get('output', ''), 'assets')
-        
-        # 遍历所有预制体资源
-        for prefab_path, info in prefab_info.items():
-            try:
-                logger()['info'](f"处理预制体: {prefab_path}")
-                
-                # 创建输出目录结构
-                prefab_output_dir = os.path.join(output_assets_path, 'prefabs')
-                os.makedirs(prefab_output_dir, exist_ok=True)
-                
-                # 生成.prefab文件
-                prefab_file_path = os.path.join(prefab_output_dir, os.path.basename(prefab_path) + '.prefab')
-                
-                # 创建基本预制体结构
-                prefab_data = {
-                    "ccType": "cc.PrefabAsset",
-                    "_name": os.path.basename(prefab_path),
-                    "_objFlags": 0,
-                    "_native": "",
-                    "_uuid": str(uuid_module.uuid4()),
-                    "_id": 0,
-                    "data": {
-                        "ccType": "cc.Node",
-                        "_name": os.path.basename(prefab_path),
-                        "_objFlags": 0,
-                        "_components": [],
-                        "active": True,
-                        "_persistNode": False,
-                        "_position": [0, 0, 0],
-                        "_rotation": [0, 0, 0, 1],
-                        "_scale": [1, 1, 1],
-                        "_eulerAngles": [0, 0, 0],
-                        "_anchorPoint": [0.5, 0.5],
-                        "_skew": [0, 0],
-                        "_contentSize": [100, 100],
-                        "_color": [255, 255, 255, 255],
-                        "_opacity": 255,
-                        "_parent": None,
-                        "_children": []
-                    },
-                    "asyncLoadAssets": False,
-                    "optimizeBatchInEditor": True
-                }
-                
-                # 写入预制体文件
-                fileManager.writeFile(prefab_file_path, json.dumps(prefab_data, indent=2))
-                logger()['success'](f"生成预制体文件: {prefab_file_path}")
-            except Exception as e:
-                logger()['exception'](f"转换预制体资源失败: {prefab_path}", e)
-    
-    def extractAllResources(self, paths):
-        """
-        提取所有资源
-        
-        Args:
-            paths (dict): 路径字典
-        """
-        import os
-        import shutil
-        
-        logger()['info']("开始提取所有资源...")
-        
-        output_assets_dir = os.path.join(paths.get('output', ''), 'assets')
-        source_dir = paths.get('source', '')
-        
-        # 确保输出目录存在
-        os.makedirs(output_assets_dir, exist_ok=True)
-        
-        # 提取资源文件
-        resource_extensions = [
-            '.png', '.jpg', '.jpeg', '.gif', '.webp',  # 图片资源
-            '.mp3', '.wav', '.ogg', '.flac',  # 音频资源
-            '.mp4', '.mov', '.webm',  # 视频资源
-            '.json', '.xml',  # 配置资源
-            '.font', '.ttf', '.otf',  # 字体资源
-            '.atlas',  # 图集资源
-            '.anim',  # 动画资源
-            '.fire',  # 场景资源
-            '.prefab',  # 预制体资源
-            '.csd',  # Cocos Studio资源
-            '.csb',  # 二进制Cocos Studio资源
-            '.dragonbones', '.dbbin',  # DragonBones动画资源
-            '.skel', '.atlas',  # Spine动画资源
-            '.lua'  # Lua脚本
-        ]
-        
-        # 遍历源目录，查找所有资源文件
-        for root, dirs, files in os.walk(source_dir):
-            for file in files:
-                if any(file.endswith(ext) for ext in resource_extensions):
-                    source_file = os.path.join(root, file)
-                    rel_path = os.path.relpath(source_file, source_dir)
-                    target_file = os.path.join(output_assets_dir, rel_path)
-                    
-                    # 确保目标目录存在
-                    os.makedirs(os.path.dirname(target_file), exist_ok=True)
-                    
-                    try:
-                        # 复制资源文件
-                        shutil.copy2(source_file, target_file)
-                        logger()['debug'](f"提取资源文件: {rel_path}")
-                    except Exception as e:
-                        logger()['exception'](f"复制资源文件失败: {source_file}", e)
-                        continue
-        
-        logger()['success']("资源提取完成")
 
 # 创建全局实例
 resourceProcessor = ResourceProcessor()

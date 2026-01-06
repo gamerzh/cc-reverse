@@ -63,13 +63,6 @@ setup(
         ],
     },
     
-    # 额外的URL
-    project_urls={
-        'Bug Reports': 'https://github.com/yourusername/cc-reverse/issues',
-        'Source': 'https://github.com/yourusername/cc-reverse',
-        'Documentation': 'https://github.com/yourusername/cc-reverse#readme',
-    },
-    
     # 数据文件
     data_files=[
         ('', ['README.md', 'requirements.txt', '.gitignore']),

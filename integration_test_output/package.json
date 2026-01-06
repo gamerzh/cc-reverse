@@ -1,0 +1,16 @@
+{
+  "name": "cc-reverse-project",
+  "version": "1.0.0",
+  "description": "Cocos Creator reverse engineered project",
+  "main": "main.js",
+  "scripts": {
+    "build": "cocos build",
+    "preview": "cocos preview"
+  },
+  "keywords": [
+    "cocos-creator",
+    "reverse-engineering"
+  ],
+  "author": "",
+  "license": "MIT"
+}

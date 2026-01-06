@@ -1,0 +1,14 @@
+{
+  "ver": "1.0.3",
+  "uuid": "ec9bd184-f591-44af-b605-77e617d88d6f",
+  "asyncLoadAssets": false,
+  "subMetas": {},
+  "texture": {
+    "type": 0,
+    "aniso": 1,
+    "filterMode": 1,
+    "wrapMode": 1,
+    "genMipmaps": true,
+    "premultiplyAlpha": true
+  }
+}

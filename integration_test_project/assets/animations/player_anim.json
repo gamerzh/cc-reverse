@@ -1,0 +1,9 @@
+{
+  "__type__": "cc.AnimationClip",
+  "_name": "PlayerAnimation",
+  "_duration": 1.0,
+  "sample": 60,
+  "speed": 1.0,
+  "wrapMode": 1,
+  "curveData": {}
+}
