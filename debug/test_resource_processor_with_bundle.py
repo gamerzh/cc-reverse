@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-测试资源处理器的功能
+测试资源处理器的功能 - 带有bundle_filter参数
 """
 
 import os
@@ -12,10 +12,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # 测试项目路径
-test_project_path = "debug_test_project"
-test_output_path = "debug_test_output"
+test_project_path = "debug_test_project_bundle"
+test_output_path = "debug_test_output_bundle"
 
-# 创建测试项目
 def create_test_project():
     """创建测试项目"""
     print("创建测试项目...")
@@ -53,16 +52,15 @@ def create_test_project():
     
     print("测试项目创建完成！")
 
-# 测试资源处理器
-def test_resource_processor():
-    """测试资源处理器"""
+def test_resource_processor_with_bundle():
+    """测试资源处理器 - 带有bundle_filter参数"""
     import sys
     import os
     # 添加项目根目录到Python路径
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from resources_reverse.resourceProcessor import ResourceProcessor
     
-    print("\n测试资源处理器...")
+    print("\n测试资源处理器 - 带有bundle_filter参数...")
     
     # 创建测试项目
     create_test_project()
@@ -86,8 +84,8 @@ def test_resource_processor():
     processor = ResourceProcessor()
     
     try:
-        # 处理资源
-        processor.process_resources(paths, settings)
+        # 处理资源，使用bundle_filter参数
+        processor.process_resources(paths, settings, bundle_filter="fhpoker")
         
         print("\n资源处理完成！")
         
@@ -100,6 +98,14 @@ def test_resource_processor():
             subindent = ' ' * 2 * (level + 1)
             for file in files:
                 print(f"{subindent}{file}")
+        
+        # 检查bundle目录是否正确创建
+        bundle_path = os.path.join(test_output_path, "assets", "fhpoker")
+        if os.path.exists(bundle_path):
+            print("\n✓ bundle目录创建成功")
+        else:
+            print("\n✗ bundle目录创建失败")
+            return False
         
         print("\n测试成功！")
         return True
@@ -114,5 +120,4 @@ def test_resource_processor():
         shutil.rmtree(test_output_path)
 
 if __name__ == "__main__":
-    import json
-    test_resource_processor()
+    test_resource_processor_with_bundle()

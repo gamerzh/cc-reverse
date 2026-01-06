@@ -297,7 +297,6 @@ def reverseProject(options):
             
             if success:
                 # 检查是否生成了JSON文件
-                import os
                 if os.path.exists(json_output) and len(os.listdir(json_output)) > 0:
                     # 根据bundle_filter参数确定输出目录结构
                     if bundle_filter:
@@ -546,6 +545,8 @@ def validatePaths(resPath, settingsPath, projectPath):
         settingsPath (str): 设置文件路径
         projectPath (str): 项目文件路径
     """
+    import glob
+    
     if not os.path.exists(resPath):
         raise Exception(f'错误: 资源路径不存在: {resPath}')
     
@@ -555,7 +556,6 @@ def validatePaths(resPath, settingsPath, projectPath):
     # 对于2.4.15版本，projectPath可能与settingsPath相同，所以只需要验证一次
     if projectPath != settingsPath and not os.path.exists(projectPath):
         # 尝试查找其他可能的project文件
-        import glob
         project_dir = os.path.dirname(projectPath)
         project_files = glob.glob(os.path.join(project_dir, 'project*.js'))
         if project_files:
@@ -691,7 +691,6 @@ def find_bundle_files(res_path, bundle_filter=None):
         list: bundle文件路径列表
     """
     import glob
-    import os
     
     bundle_files = []
     
