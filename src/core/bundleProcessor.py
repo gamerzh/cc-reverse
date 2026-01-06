@@ -190,13 +190,14 @@ class BundleProcessor:
         
         return content
     
-    def convert_modules_to_typescript(self, extracted_info, output_dir=None):
+    def convert_modules_to_typescript(self, extracted_info, output_dir=None, format='javascript'):
         """
-        将提取的模块转换为TypeScript格式
+        将提取的模块转换为指定格式的代码（默认JavaScript）
         
         Args:
             extracted_info: 从extract_bundle_modules返回的信息
-            output_dir: TypeScript输出目录
+            output_dir: 输出目录
+            format: 输出格式，'javascript' 或 'typescript'
         
         Returns:
             list: 转换后的类信息
@@ -212,9 +213,14 @@ class BundleProcessor:
             logger().error(f"模块目录不存在: {modules_dir}")
             return []
         
-        # 如果未指定TypeScript输出目录，则在模块目录下创建typescript子目录
+        # 如果未指定输出目录，则根据格式处理
         if output_dir is None:
-            output_dir = os.path.join(modules_dir, "typescript")
+            if format == 'javascript':
+                # JavaScript模式：直接覆盖原始script目录下的文件
+                output_dir = modules_dir
+            else:  # typescript
+                # TypeScript模式：在script目录下创建typescript子目录
+                output_dir = os.path.join(modules_dir, "typescript")
         
         os.makedirs(output_dir, exist_ok=True)
         
@@ -228,7 +234,7 @@ class BundleProcessor:
             logger().warn(f"模块目录中没有找到.js文件: {modules_dir}")
             return []
         
-        logger().info(f"开始转换 {len(js_files)} 个模块为TypeScript...")
+        logger().info(f"开始转换 {len(js_files)} 个模块为{format}...")
         
         converted_classes = []
         
@@ -238,32 +244,61 @@ class BundleProcessor:
         # 处理每个.js文件
         for js_file in js_files:
             try:
-                results = converter.process_module_file(js_file)
+                results = converter.process_module_file(js_file, output_format=format)
                 
                 if results:
-                    for result in results:
-                        # 保存TypeScript文件
-                        ts_path = converter.save_typescript_file(
-                            result['class_info'], 
-                            result['ts_code'], 
-                            output_dir,
-                            os.path.basename(js_file)
-                        )
+                    # 如果同一个文件中有多个类，为每个类生成不同的文件名
+                    for idx, result in enumerate(results):
+                        # 根据格式保存文件
+                        if format == 'javascript':
+                            code_key = 'js_code'
+                            # 如果有多个类，在文件名后添加索引
+                            if len(results) > 1:
+                                base_name = os.path.splitext(os.path.basename(js_file))[0]
+                                class_name = result['class_info'].get('name', f'Class_{idx+1}')
+                                safe_class_name = re.sub(r'[\\/*?:"<>|]', '_', class_name)
+                                filename = f"{base_name}_{safe_class_name}.js"
+                            else:
+                                filename = os.path.basename(js_file)
+                            
+                            output_path = converter.save_javascript_file(
+                                result['class_info'], 
+                                result['js_code'], 
+                                output_dir,
+                                filename
+                            )
+                        else:  # typescript
+                            code_key = 'ts_code'
+                            # 如果有多个类，在文件名后添加索引
+                            if len(results) > 1:
+                                base_name = os.path.splitext(os.path.basename(js_file))[0]
+                                class_name = result['class_info'].get('name', f'Class_{idx+1}')
+                                safe_class_name = re.sub(r'[\\/*?:"<>|]', '_', class_name)
+                                filename = f"{base_name}_{safe_class_name}.ts"
+                            else:
+                                filename = os.path.basename(js_file)
+                            
+                            output_path = converter.save_typescript_file(
+                                result['class_info'], 
+                                result['ts_code'], 
+                                output_dir,
+                                filename
+                            )
                         
-                        if ts_path:
+                        if output_path:
                             converted_classes.append({
                                 'original_file': js_file,
-                                'ts_file': ts_path,
+                                'ts_file': output_path,
                                 'class_info': result['class_info']
                             })
                             
-                            logger().debug(f"转换: {os.path.basename(js_file)} -> {os.path.basename(ts_path)}")
+                            logger().debug(f"转换: {os.path.basename(js_file)} -> {os.path.basename(output_path)}")
                 else:
                     logger().debug(f"未从 {os.path.basename(js_file)} 提取到类信息")
             except Exception as e:
                 logger().error(f"转换模块失败 {js_file}: {e}")
         
-        logger().success(f"成功转换 {len(converted_classes)} 个类为TypeScript到 {output_dir}")
+        logger().success(f"成功转换 {len(converted_classes)} 个类为{format}到 {output_dir}")
         
         self.converted_classes.extend(converted_classes)
         return converted_classes
@@ -317,7 +352,7 @@ class BundleProcessor:
         return class_info
     
     def _parse_cc_class_body(self, class_body, class_info):
-        """解析cc.Class体（简化版本）"""
+        """解析cc.Class体（改进版本）"""
         # 提取类名
         name_pattern = r'name\s*:\s*["\']([^"\']+)["\']'
         name_match = re.search(name_pattern, class_body)
@@ -330,7 +365,35 @@ class BundleProcessor:
         if extends_match:
             class_info['extends'] = extends_match.group(1)
         
-        # 简化：不深入解析属性和方法
+        # 尝试提取属性
+        properties_pattern = r'properties\s*:\s*\{([\s\S]*?)\}(?=\s*[,}])'
+        properties_match = re.search(properties_pattern, class_body)
+        if properties_match:
+            properties_str = properties_match.group(1)
+            # 简单解析属性键值对
+            prop_pattern = r'(\w+)\s*:\s*({[^}]+}|\[[^\]]+\]|[^,}]+)'
+            prop_matches = re.findall(prop_pattern, properties_str)
+            for prop_name, prop_value in prop_matches:
+                class_info.setdefault('properties', {})[prop_name.strip()] = prop_value.strip()
+        
+        # 尝试提取方法
+        method_patterns = [
+            r'(\w+)\s*:\s*function\s*\(([^)]*)\)\s*\{([\s\S]*?)\}(?=\s*[,}])',
+            r'(\w+)\s*:\s*\(([^)]*)\)\s*=>\s*\{([\s\S]*?)\}(?=\s*[,}])',
+            r'(\w+)\s*\(([^)]*)\)\s*\{([\s\S]*?)\}(?=\s*[,}])'
+        ]
+        
+        for pattern in method_patterns:
+            method_matches = re.finditer(pattern, class_body)
+            for match in method_matches:
+                method_name = match.group(1)
+                params = match.group(2)
+                method_body = match.group(3)
+                
+                class_info.setdefault('methods', {})[method_name] = {
+                    'params': [p.strip() for p in params.split(',') if p.strip()],
+                    'body': method_body.strip()
+                }
         
         return class_info
     
