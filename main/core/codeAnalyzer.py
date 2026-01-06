@@ -38,17 +38,22 @@ class CodeAnalyzer:
         logger()["debug"](f"开始分析代码... 文件: {file_path}")
         
         try:
-            # 使用esprima解析JavaScript代码
+            # 使用esprima解析JavaScript代码，使用更宽容的配置
             ast = esprima.parseScript(code, {
                 "range": True,
                 "loc": True,
-                "tolerant": True
+                "tolerant": True,
+                "jsx": True,  # 支持JSX语法
+                "comment": True,
+                "tokens": True
             })
             
             # 遍历AST提取cc.Class定义
+            logger()["debug"](f"AST解析完成，开始遍历AST，body节点数: {len(ast.body)}")
             self._traverseAST(ast.body, file_path)
             
             scripts_count = len(self.analyzed_data["components"])
+            logger()["debug"](f"esprima分析完成，检测到 {scripts_count} 个组件")
             
             # 如果esprima没有检测到任何组件，使用正则表达式回退
             if scripts_count == 0:
@@ -167,7 +172,7 @@ class CodeAnalyzer:
     
     def _traverseAST(self, nodes, file_path=""):
         """
-        遍历AST节点
+        遍历AST节点，改进版本，能处理更多cc.Class调用模式
         
         Args:
             nodes (list): AST节点列表
@@ -184,25 +189,100 @@ class CodeAnalyzer:
             if isinstance(node, dict):
                 node_type = node.get("type")
                 
-                # 查找cc.Class调用表达式
+                # 1. 查找直接的cc.Class调用表达式
                 if node_type == "ExpressionStatement":
                     expr = node.get("expression")
                     if expr and expr.get("type") == "CallExpression":
-                        callee = expr.get("callee")
-                        # 检查是否是 cc.Class 调用
-                        if (callee and callee.get("type") == "MemberExpression" and 
-                            callee.get("object", {}).get("name") == "cc" and 
-                            callee.get("property", {}).get("name") == "Class"):
-                            # 提取cc.Class的参数
-                            args = expr.get("arguments", [])
-                            if args:
-                                class_data = args[0]
-                                self._extractClassInfo(class_data, file_path)
+                        self._check_cc_class_call(expr, file_path, logger)
+                
+                # 2. 查找赋值表达式中的cc.Class调用
+                elif node_type == "AssignmentExpression":
+                    right_expr = node.get("right")
+                    if right_expr and right_expr.get("type") == "CallExpression":
+                        self._check_cc_class_call(right_expr, file_path, logger)
+                
+                # 3. 查找变量声明中的cc.Class调用
+                elif node_type == "VariableDeclaration":
+                    declarations = node.get("declarations", [])
+                    for decl in declarations:
+                        init = decl.get("init")
+                        if init and init.get("type") == "CallExpression":
+                            self._check_cc_class_call(init, file_path, logger)
                 
                 # 递归遍历子节点
                 for key, value in node.items():
                     if key != "type" and isinstance(value, (dict, list)):
                         self._traverseAST([value] if isinstance(value, dict) else value, file_path)
+    
+    def _check_cc_class_call(self, call_expr, file_path, logger_func):
+        """
+        检查CallExpression是否为cc.Class调用
+        
+        Args:
+            call_expr: CallExpression节点
+            file_path: 文件路径
+            logger_func: 日志函数
+        """
+        callee = call_expr.get("callee")
+        
+        # 检查多种cc.Class调用模式
+        is_cc_class = False
+        
+        # 模式1: cc.Class({...})
+        if (callee and callee.get("type") == "MemberExpression" and 
+            callee.get("object", {}).get("name") == "cc" and 
+            callee.get("property", {}).get("name") == "Class"):
+            is_cc_class = True
+        
+        # 模式2: window.cc.Class({...})
+        elif (callee and callee.get("type") == "MemberExpression" and 
+              callee.get("object", {}).get("type") == "MemberExpression" and 
+              callee.get("object", {}).get("object", {}).get("name") == "window" and 
+              callee.get("object", {}).get("property", {}).get("name") == "cc" and 
+              callee.get("property", {}).get("name") == "Class"):
+            is_cc_class = True
+        
+        # 模式3: window._cc.Class({...}) 或其他变种
+        elif (callee and callee.get("type") == "MemberExpression" and 
+              callee.get("property", {}).get("name") == "Class"):
+            # 检查对象部分是否包含"cc"或"_cc"
+            obj_str = self._get_member_expression_str(callee.get("object"))
+            if "cc" in obj_str or "_cc" in obj_str:
+                is_cc_class = True
+        
+        if is_cc_class:
+            # 提取cc.Class的参数
+            args = call_expr.get("arguments", [])
+            if args:
+                class_data = args[0]
+                logger_func()["debug"](f"找到cc.Class调用，开始提取类信息")
+                self._extractClassInfo(class_data, file_path)
+    
+    def _get_member_expression_str(self, node):
+        """
+        获取成员表达式的字符串表示
+        
+        Args:
+            node: 成员表达式节点
+        
+        Returns:
+            str: 成员表达式的字符串表示
+        """
+        if not node:
+            return ""
+        
+        if node.get("type") == "Identifier":
+            return node.get("name")
+        elif node.get("type") == "MemberExpression":
+            obj_str = self._get_member_expression_str(node.get("object"))
+            prop = node.get("property")
+            if prop.get("type") == "Identifier":
+                prop_str = prop.get("name")
+            else:
+                prop_str = str(prop.get("value"))
+            return f"{obj_str}.{prop_str}"
+        else:
+            return str(node)
     
     def _extractClassInfo(self, class_data, file_path=""):
         """

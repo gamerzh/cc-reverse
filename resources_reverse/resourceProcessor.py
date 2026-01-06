@@ -147,10 +147,10 @@ class ResourceProcessor:
         
         for config_dir in config_dirs:
             config_files = []
-            # 查找所有可能的配置文件
+            # 查找所有可能的配置文件，只处理JSON文件
             for root, dirs, files in os.walk(config_dir):
                 for file in files:
-                    if file.endswith('.json') or file.endswith('.js'):
+                    if file.endswith('.json'):
                         config_files.append(os.path.join(root, file))
             
             for config_file_path in config_files:
@@ -263,7 +263,7 @@ class ResourceProcessor:
                                 })
                                 logger()['debug'](f"添加骨骼动画路径到创建列表: {full_path}")
                 except Exception as e:
-                    logger()['exception'](f"处理配置文件失败: {config_file_path}", e)
+                    logger()['debug'](f"跳过配置文件 {config_file_path}: {e}")
                     continue
         
         # 处理资源文件

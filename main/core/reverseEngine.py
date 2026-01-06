@@ -154,13 +154,31 @@ def reverseProject(options):
         
         # 读取项目文件
         logger()["info"]("读取项目配置文件...")
+        
+        # 读取settings文件
         with open(project_info['settingsPath'], 'rb') as f:
             settings = f.read()
         
+        # 读取project文件，尝试多种编码
         with open(project_info['projectPath'], 'rb') as f:
-            project = f.read()
+            project_bytes = f.read()
         
-        code = project.decode('utf-8')
+        # 尝试解码project文件，支持多种编码
+        code = None
+        encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']
+        for encoding in encodings:
+            try:
+                code = project_bytes.decode(encoding)
+                logger()["debug"](f"使用编码 {encoding} 成功解码project文件")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if code is None:
+            # 如果所有编码都失败，使用latin-1作为最终回退
+            code = project_bytes.decode('latin-1', errors='replace')
+            logger()["warn"]("无法使用utf-8/gbk/gb2312解码项目文件，使用latin-1回退")
+        
         logger()["success"]("成功读取项目配置文件")
         
         # 解析设置
@@ -554,73 +572,63 @@ def parseSettings(settings):
         logger()["debug"]('开始解析设置文件...')
         logger()["debug"](f'设置文件内容: {settings_content[:200]}...')
         
-        # 方法1: 直接执行JavaScript代码获取CCSettings（安全方式）
+        # 方法1: 提取CCSettings对象
         try:
-            # 使用ast.literal_eval或直接解析
-            # 查找CCSettings赋值行
-            if 'window._CCSettings' in settings_content:
-                # 提取整个赋值语句
-                # 查找window._CCSettings的完整赋值
-                ccsettings_match = re.search(r'window\._CCSettings\s*=\s*({[^;]+});', settings_content, re.DOTALL)
-                if ccsettings_match:
-                    settings_json_str = ccsettings_match.group(1)
-                else:
-                    # 如果没有分号，尝试匹配到行尾
-                    ccsettings_match = re.search(r'window\._CCSettings\s*=\s*({[^;]+})', settings_content, re.DOTALL)
-                    if ccsettings_match:
-                        settings_json_str = ccsettings_match.group(1)
-                    else:
-                        # 保留原逻辑作为备选
-                        settings_line = settings_content.strip()
-                        settings_json_str = settings_line.replace('window._CCSettings=', '').rstrip(';')
+            # 查找CCSettings赋值
+            ccsettings_pattern = r'(window\._CCSettings|window\.CCSettings)\s*=\s*({[\s\S]*?})(?=;\s*}|;\s*\}|\}\s*;|$)'  
+            ccsettings_match = re.search(ccsettings_pattern, settings_content, re.DOTALL)
+            
+            if ccsettings_match:
+                settings_json_str = ccsettings_match.group(2)
                 
-                # 使用一个简单的JavaScript解析器来处理
-                # 替换单引号为双引号
+                # 清理JSON字符串，使其能被json.loads解析
+                # 1. 替换单引号为双引号
                 settings_json_str = settings_json_str.replace("'", '"')
-                # 移除末尾的逗号
+                
+                # 2. 处理属性名（添加引号）
+                settings_json_str = re.sub(r'([\w]+)\s*:', r'"\1":', settings_json_str)
+                
+                # 3. 移除末尾的逗号
                 settings_json_str = re.sub(r",\s*([}\]])", r'\1', settings_json_str)
+                
+                # 4. 处理特殊值（undefined, null, true, false）
+                settings_json_str = re.sub(r'\bundefined\b', r'null', settings_json_str)
+                settings_json_str = re.sub(r'\btrue\b', r'true', settings_json_str)
+                settings_json_str = re.sub(r'\bfalse\b', r'false', settings_json_str)
+                
+                # 5. 处理数字和字符串
+                settings_json_str = re.sub(r'"([^"\\\r\n]*)"', r'"\1"', settings_json_str)
                 
                 # 解析JSON
                 settings_data = json.loads(settings_json_str)
                 global_settings = {'CCSettings': settings_data}
-            elif 'window.CCSettings' in settings_content:
-                # 提取整个赋值语句
-                # 查找window.CCSettings的完整赋值
-                ccsettings_match = re.search(r'window\.CCSettings\s*=\s*({[^;]+});', settings_content, re.DOTALL)
-                if ccsettings_match:
-                    settings_json_str = ccsettings_match.group(1)
-                else:
-                    # 如果没有分号，尝试匹配到行尾
-                    ccsettings_match = re.search(r'window\.CCSettings\s*=\s*({[^;]+})', settings_content, re.DOTALL)
-                    if ccsettings_match:
-                        settings_json_str = ccsettings_match.group(1)
-                    else:
-                        # 保留原逻辑作为备选
-                        settings_line = settings_content.strip()
-                        settings_json_str = settings_line.replace('window.CCSettings=', '').rstrip(';')
-                settings_json_str = settings_json_str.replace("'", '"')
-                settings_json_str = re.sub(r",\s*([}\]])", r'\1', settings_json_str)
-                settings_data = json.loads(settings_json_str)
-                global_settings = {'CCSettings': settings_data}
             else:
-                # 尝试方法2: 提取jsList
+                # 方法2: 提取jsList
                 js_list_match = re.search(r'jsList\s*:\s*\[(.*?)\]', settings_content, re.DOTALL)
                 if js_list_match:
                     js_list_str = js_list_match.group(1)
                     # 分割并清理jsList项
-                    js_list = [item.strip().strip("'").strip('"') for item in js_list_str.split(',')]
+                    js_list = [item.strip().strip("'").strip('"') for item in js_list_str.split(',') if item.strip()]
                     global_settings = {'CCSettings': {'jsList': js_list}}
                 else:
                     global_settings = {'CCSettings': {}}
-        except Exception as e1:
-            logger()["debug"](f'直接解析失败，尝试提取jsList: {e1}')
+        except json.JSONDecodeError as e1:
+            logger()["debug"](f'JSON解析失败，尝试提取jsList: {e1}')
             # 方法2: 提取jsList
             js_list_match = re.search(r'jsList\s*:\s*\[(.*?)\]', settings_content, re.DOTALL)
             if js_list_match:
                 js_list_str = js_list_match.group(1)
                 # 分割并清理jsList项
-                js_list = [item.strip().strip("'").strip('"') for item in js_list_str.split(',')]
+                js_list = [item.strip().strip("'").strip('"') for item in js_list_str.split(',') if item.strip()]
                 global_settings = {'CCSettings': {'jsList': js_list}}
+            else:
+                global_settings = {'CCSettings': {}}
+        except Exception as e2:
+            logger()["debug"](f'解析失败，尝试简单提取: {e2}')
+            # 方法3: 简单提取jsList
+            js_list_items = re.findall(r'["\']([^"\']+)["\']', settings_content)
+            if js_list_items:
+                global_settings = {'CCSettings': {'jsList': js_list_items}}
             else:
                 global_settings = {'CCSettings': {}}
         

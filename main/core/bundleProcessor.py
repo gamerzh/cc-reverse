@@ -519,10 +519,16 @@ class BundleProcessor:
         logger()["debug"](f"output_base_dir: {output_base_dir}")
         logger()["debug"](f"bundle_output_dir: {bundle_output_dir}")
         
+        # 检查是否为Webpack bundle
+        if not self.is_webpack_bundle(bundle_path):
+            logger()["debug"](f"跳过非Webpack bundle文件: {bundle_path}")
+            return {'success': False, 'error': '不是Webpack bundle文件'}
+        
         # 提取模块
         extraction_result = self.extract_bundle_modules(bundle_path, bundle_output_dir)
         
         if not extraction_result:
+            logger()["warn"](f"无法从 {bundle_path} 提取模块")
             return {'success': False, 'error': '提取模块失败'}
         
         # 转换为TypeScript
