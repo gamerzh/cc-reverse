@@ -87,7 +87,8 @@ class CodeReverse:
                 cmd,
                 cwd=self.js_analyzer_path,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8'
             )
             
             # 打印输出
@@ -146,7 +147,8 @@ class CodeReverse:
                 cmd,
                 cwd=self.js_analyzer_path,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8'
             )
             
             if result.returncode != 0:
