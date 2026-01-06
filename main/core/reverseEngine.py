@@ -169,9 +169,9 @@ def reverseProject(options):
         logger()["success"]("项目设置解析完成")
         
         # 导入需要在全局变量设置后使用的模块
-        from main.core.codeAnalyzer import codeAnalyzer
+        from core.codeAnalyzer import codeAnalyzer
         from resources_reverse.resourceProcessor import resourceProcessor
-        from main.core.projectGenerator import projectGenerator
+        from core.projectGenerator import projectGenerator
         
         # 先创建项目结构
         logger()["info"]("创建项目目录结构...")
@@ -780,7 +780,7 @@ def process_bundle_files(bundle_files, output_base_dir, res_path):
         list: 处理结果列表
     """
     # 导入bundleProcessor，避免循环导入
-    from main.core.bundleProcessor import bundleProcessor
+    from core.bundleProcessor import bundleProcessor
     
     results = []
     
