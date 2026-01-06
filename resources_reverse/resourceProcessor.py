@@ -471,7 +471,7 @@ class ResourceProcessor:
                     logger()['exception'](f"处理JSON文件 {curr_path} 时出错", e)
     
     def process_all_files(self):
-        """处理所有文件，包括非JSON文件，保持原始目录结构"""
+        """处理所有文件，包括非JSON文件，生成逆向后的资源"""
         logger()['info'](f"开始处理所有文件，共 {len(self.file_list)} 个文件")
         
         # 遍历所有文件
@@ -481,17 +481,23 @@ class ResourceProcessor:
                 continue
             
             try:
-                # 获取相对路径
-                relative_path = self.file_relative_paths.get(curr_path, os.path.basename(curr_path))
+                # 获取文件扩展名
+                ext = os.path.splitext(curr_path)[1].lower()
                 
-                # 构建输出路径，保持原始目录结构
-                output_path = os.path.join(self.paths.get('output', ''), 'assets', relative_path)
-                
-                # 添加到复制列表
-                self.cache_read_list.append(curr_path)
-                self.cache_write_list.append(output_path)
-                
-                logger()['debug'](f"添加文件到处理列表: {curr_path} -> {output_path}")
+                # 只处理需要逆向的资源类型，不执行任何复制操作
+                if ext in ['.png', '.jpg', '.jpeg', '.mp3', '.wav', '.ogg', '.anim']:
+                    # 获取相对路径
+                    relative_path = self.file_relative_paths.get(curr_path, os.path.basename(curr_path))
+                    
+                    # 构建输出路径，保持原始目录结构
+                    output_path = os.path.join(self.paths.get('output', ''), 'assets', relative_path)
+                    
+                    # 只生成资源信息和meta文件，不执行复制操作
+                    # 记录资源信息，用于生成meta文件
+                    logger()['debug'](f"处理资源: {curr_path} -> {output_path}")
+                else:
+                    # 跳过不需要的文件类型（如编译后的js文件）
+                    logger()['debug'](f"跳过不需要的文件类型: {curr_path}")
             except Exception as e:
                 logger()['exception'](f"处理文件 {curr_path} 时出错", e)
     
@@ -606,13 +612,8 @@ class ResourceProcessor:
             "subMetas": {}
         }
         
+        # 只生成.meta文件，不复制原始文件
         if meta_uuid in self.file_map:
-            write_path = name
-            curr_path = self.file_map[meta_uuid]
-            
-            output_path = os.path.join(self.paths.get('output', ''), 'assets', mkdir, write_path)
-            self.cache_read_list.append(curr_path)
-            self.cache_write_list.append(output_path)
             del self.file_map[meta_uuid]
         
         # 写入.meta文件
@@ -784,13 +785,8 @@ class ResourceProcessor:
             "subMetas": {}
         }
         
-        # 处理纹理文件
+        # 只生成.meta文件，不复制原始文件
         if meta_uuid in self.file_map:
-            curr_path = self.file_map[meta_uuid]
-            output_path = os.path.join(self.paths.get('output', ''), 'assets', mkdir, name)
-            
-            self.cache_read_list.append(curr_path)
-            self.cache_write_list.append(output_path)
             del self.file_map[meta_uuid]
         
         # 写入meta文件
@@ -843,13 +839,13 @@ class ResourceProcessor:
         """
         转换为输出文件
         """
-        # 复制文件
-        self.copy_files()
+        # 不执行任何复制操作，只处理资源转换
+        logger()['info']("不执行任何文件复制操作")
         
         # 转换特殊资源
         Converters.convert_sprite_atlas(self.sprite_frames)
         
-        logger()['info'](f"处理了 {len(self.cache_read_list)} 个资源文件")
+        logger()['info'](f"处理了 0 个资源文件（不执行复制操作）")
     
     def copy_files(self):
         """
