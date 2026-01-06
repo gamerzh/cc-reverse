@@ -538,6 +538,11 @@ class ResourceProcessor:
         logger().info(f"空文件夹删除完成")
         
         logger().info(f"资源处理完成，共处理 {len(self.processed_resources)} 个资源")
+        
+        # 清理输出目录，移除不需要的文件和目录
+        output_path = paths.get('output', '')
+        if output_path:
+            self._cleanupOutputDirectory(output_path)
     
     def _processResource(self, file_path, rel_path, asset_root, paths=None):
         """
@@ -1822,6 +1827,143 @@ class ResourceProcessor:
             stats['by_category'][category] += 1
         
         return stats
+    
+    def _cleanupOutputDirectory(self, output_path):
+        """
+        清理输出目录，移除不需要的文件和目录
+        
+        Args:
+            output_path (str): 输出目录路径
+        """
+        from utils.logger import logger
+        import os
+        import shutil
+        
+        if not os.path.exists(output_path):
+            logger().warn(f"输出目录不存在: {output_path}")
+            return
+        
+        logger().info(f"开始清理输出目录: {output_path}")
+        
+        # 1. 移除Web构建文件
+        web_build_files = [
+            'index.html',
+            'favicon.*.ico',
+            'splash.*.png',
+            'loading-arc.*.gif',
+            'style-*.css'
+        ]
+        
+        assets_dir = os.path.join(output_path, 'assets')
+        if os.path.exists(assets_dir):
+            for item in os.listdir(assets_dir):
+                item_path = os.path.join(assets_dir, item)
+                # 检查是否为Web构建文件（匹配模式）
+                is_web_build_file = False
+                for pattern in web_build_files:
+                    # 简单的通配符匹配（* 代表任意字符）
+                    if '*' in pattern:
+                        import fnmatch
+                        if fnmatch.fnmatch(item, pattern):
+                            is_web_build_file = True
+                            break
+                    elif item == pattern:
+                        is_web_build_file = True
+                        break
+                
+                if is_web_build_file:
+                    try:
+                        if os.path.isfile(item_path):
+                            os.remove(item_path)
+                            logger().debug(f"移除Web构建文件: {item}")
+                        elif os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                            logger().debug(f"移除Web构建目录: {item}")
+                    except Exception as e:
+                        logger().warn(f"移除文件失败 {item}: {e}")
+        
+        # 2. 移除不需要的目录
+        unwanted_dirs = [
+            'settings',          # 编辑器配置
+            'temp',              # 临时文件
+            'library',           # 库文件
+            'web-mobile',        # 编译后的Web资源
+        ]
+        
+        for dir_name in unwanted_dirs:
+            dir_path = os.path.join(output_path, dir_name)
+            if os.path.exists(dir_path):
+                try:
+                    shutil.rmtree(dir_path)
+                    logger().info(f"移除目录: {dir_path}")
+                except Exception as e:
+                    logger().warn(f"移除目录失败 {dir_path}: {e}")
+        
+        # 3. 移除根目录的package.json和project.json（如果是由逆向工具生成的）
+        # 检查这些文件是否看起来是生成的（包含特定内容或模式）
+        package_json_path = os.path.join(output_path, 'package.json')
+        project_json_path = os.path.join(output_path, 'project.json')
+        
+        def is_generated_config(file_path):
+            """检查配置文件是否看起来是生成的"""
+            if not os.path.exists(file_path):
+                return False
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                # 如果文件很小或包含特定关键词，可能是生成的
+                if len(content) < 500:  # 假设生成的文件较小
+                    return True
+                # 检查是否包含逆向工具相关的关键词
+                keywords = ['cc-reverse', 'cocos-creator', 'reverse-engineer']
+                for keyword in keywords:
+                    if keyword in content.lower():
+                        return True
+                return False
+            except:
+                return False
+        
+        if is_generated_config(package_json_path):
+            try:
+                os.remove(package_json_path)
+                logger().info(f"移除生成的package.json: {package_json_path}")
+            except Exception as e:
+                logger().warn(f"移除package.json失败: {e}")
+        
+        if is_generated_config(project_json_path):
+            try:
+                os.remove(project_json_path)
+                logger().info(f"移除生成的project.json: {project_json_path}")
+            except Exception as e:
+                logger().warn(f"移除project.json失败: {e}")
+        
+        # 4. 检查assets目录是否为空，如果是则删除（但保留assets/scripts/目录）
+        if os.path.exists(assets_dir):
+            # 检查assets目录是否为空，或者只包含scripts目录
+            items = os.listdir(assets_dir)
+            if not items:
+                # 完全为空，删除
+                try:
+                    os.rmdir(assets_dir)
+                    logger().info(f"移除空assets目录: {assets_dir}")
+                except Exception as e:
+                    logger().warn(f"移除assets目录失败: {e}")
+            elif len(items) == 1 and items[0] == 'scripts':
+                # 只有scripts目录，检查scripts目录是否为空
+                scripts_dir = os.path.join(assets_dir, 'scripts')
+                if os.path.exists(scripts_dir) and not os.listdir(scripts_dir):
+                    # scripts目录也为空，删除整个assets目录
+                    try:
+                        shutil.rmtree(assets_dir)
+                        logger().info(f"移除空的assets/scripts目录: {assets_dir}")
+                    except Exception as e:
+                        logger().warn(f"移除assets目录失败: {e}")
+        
+        # 5. 删除所有空的目录
+        from utils.fileManager import fileManager
+        fileManager.deleteEmptyDirectories(output_path)
+        
+        logger().info("输出目录清理完成")
 
 # 创建全局实例
 resourceProcessor = ResourceProcessor()
