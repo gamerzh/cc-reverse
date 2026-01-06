@@ -337,13 +337,14 @@ class ResourceProcessor:
         self.paths: Dict[str, str] = {}
         self.file_manager: Optional[FileManager] = None
     
-    def process_resources(self, paths: Dict[str, str], settings: Dict[str, Any]):
+    def process_resources(self, paths: Dict[str, str], settings: Dict[str, Any], bundle_filter: str = None):
         """
         处理资源文件的主入口
         
         Args:
             paths (dict): 路径字典
             settings (dict): 全局设置
+            bundle_filter (str, optional): 过滤bundle文件名的关键字，用于指定输出目录
         """
         logger()['info']("开始处理资源...")
         
@@ -352,6 +353,7 @@ class ResourceProcessor:
             self.paths = paths
             self.settings = settings
             self.file_manager = FileManager(paths.get('output', ''))
+            self.bundle_filter = bundle_filter
             
             # 保存资源根路径，用于计算相对路径
             self.res_root = paths.get('res', '')
@@ -376,19 +378,20 @@ class ResourceProcessor:
             logger()['exception']("处理资源文件时出错", e)
             raise
     
-    def processResources(self, paths: Dict[str, str], settings: Dict[str, Any] = None):
+    def processResources(self, paths: Dict[str, str], settings: Dict[str, Any] = None, bundle_filter: str = None):
         """
         兼容方法，支持reverseEngine.py的调用
         
         Args:
             paths (dict): 路径字典
             settings (dict, optional): 全局设置，默认None
+            bundle_filter (str, optional): 过滤bundle文件名的关键字，用于指定输出目录
         """
         # 如果没有提供settings，使用空字典
         if settings is None:
             settings = {}
         
-        return self.process_resources(paths, settings)
+        return self.process_resources(paths, settings, bundle_filter)
     
     def reset_state(self):
         """重置处理器状态"""
@@ -483,7 +486,11 @@ class ResourceProcessor:
                     relative_path = self.file_relative_paths.get(curr_path, os.path.basename(curr_path))
                     
                     # 构建输出路径，保持原始目录结构
-                    output_path = os.path.join(self.paths.get('output', ''), 'assets', relative_path)
+                    # 如果指定了bundle_filter，将资源输出到bundle特定目录
+                    if hasattr(self, 'bundle_filter') and self.bundle_filter:
+                        output_path = os.path.join(self.paths.get('output', ''), 'assets', self.bundle_filter, relative_path)
+                    else:
+                        output_path = os.path.join(self.paths.get('output', ''), 'assets', relative_path)
                     
                     # 只生成资源信息和meta文件，不执行复制操作
                     # 记录资源信息，用于生成meta文件

@@ -98,6 +98,7 @@ def reverseProject(options):
             verbose (bool): 是否显示详细日志
             silent (bool): 是否静默模式
             versionHint (str): 版本提示
+            bundleFilter (str, optional): 过滤bundle文件名的关键字，用于指定要处理的特定bundle
     
     Returns:
         bool: 成功返回True，失败返回False
@@ -107,6 +108,7 @@ def reverseProject(options):
     verbose = options.get('verbose', False)
     silent = options.get('silent', False)
     version_hint = options.get('versionHint', '')
+    bundle_filter = options.get('bundleFilter', None)
     
     # 全局配置初始化
     global global_config, global_verbose, global_cocosVersion, global_settings, global_paths
@@ -207,7 +209,7 @@ def reverseProject(options):
         
         # 处理资源
         logger()["info"]('开始处理资源...')
-        resourceProcessor.processResources(global_paths, global_settings)
+        resourceProcessor.processResources(global_paths, global_settings, bundle_filter)
         resource_stats = resourceProcessor.getResourceStats()
         logger()["success"](f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
         
@@ -289,14 +291,23 @@ def reverseProject(options):
             success = reverse.analyze_code(
                 source_path,  # 传入整个源目录
                 json_output,
-                file_patterns=['*.js', '*.jsbundle']  # 处理所有JS和bundle文件
+                file_patterns=['*.js', '*.jsbundle'],  # 处理所有JS和bundle文件
+                bundle_filter=bundle_filter  # 传递bundle过滤条件
             )
             
             if success:
                 # 检查是否生成了JSON文件
+                import os
                 if os.path.exists(json_output) and len(os.listdir(json_output)) > 0:
+                    # 根据bundle_filter参数确定输出目录结构
+                    if bundle_filter:
+                        # 如果指定了bundle_filter，将代码输出到bundle特定目录
+                        output_dir = os.path.join(global_paths['output'], 'assets', bundle_filter, 'scripts')
+                    else:
+                        # 默认输出目录
+                        output_dir = os.path.join(global_paths['output'], 'assets', 'scripts')
+                    
                     # 生成TypeScript代码
-                    output_dir = os.path.join(global_paths['output'], 'assets', 'scripts')
                     success = reverse.generate_code(
                         json_output,
                         output_dir,
@@ -306,7 +317,7 @@ def reverseProject(options):
                     if success:
                         # 检查生成的代码文件
                         if os.path.exists(output_dir) and len(os.listdir(output_dir)) > 0:
-                            logger()["success"](f'代码逆向分析完成，生成了 {len(os.listdir(output_dir))} 个TypeScript文件')
+                            logger()["success"](f'代码逆向分析完成，生成了 {len(os.listdir(output_dir))} 个TypeScript文件到目录 {output_dir}')
                         else:
                             logger()["warn"]('代码生成成功，但未生成任何代码文件')
                     else:
@@ -668,12 +679,13 @@ def extractScriptFiles(paths, settings):
     
     logger()["success"]('脚本文件处理完成（通过代码分析逆向生成）')
 
-def find_bundle_files(res_path):
+def find_bundle_files(res_path, bundle_filter=None):
     """
     查找资源目录中可能的Webpack bundle文件
     
     Args:
         res_path (str): 资源目录路径
+        bundle_filter (str, optional): 过滤bundle文件名的关键字，用于指定要处理的特定bundle
     
     Returns:
         list: bundle文件路径列表
@@ -687,6 +699,7 @@ def find_bundle_files(res_path):
     js_patterns = [
         os.path.join(res_path, '**', '*.js'),
         os.path.join(res_path, '**', '*', '*.js'),
+        os.path.join(res_path, '**', '*.jsbundle'),
     ]
     
     for pattern in js_patterns:
@@ -695,7 +708,13 @@ def find_bundle_files(res_path):
             # 排除script目录中的.js文件（这些可能是已提取的模块）
             if 'script' in match.lower() and os.path.dirname(match).lower().endswith('script'):
                 continue
-            bundle_files.append(match)
+                
+            # 如果指定了bundle_filter，只保留包含该关键字的bundle文件
+            if bundle_filter:
+                if bundle_filter.lower() in match.lower():
+                    bundle_files.append(match)
+            else:
+                bundle_files.append(match)
     
     # 去重
     bundle_files = list(set(bundle_files))

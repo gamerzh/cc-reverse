@@ -29,7 +29,7 @@ class CodeReverse:
         self.js_analyzer_path = os.path.join(os.path.dirname(__file__), 'js_analyzer')
         self.js_deps_installed = False
     
-    def analyze_code(self, input_path, output_path, file_patterns=['*.js', '*.jsbundle']):
+    def analyze_code(self, input_path, output_path, file_patterns=['*.js', '*.jsbundle'], bundle_filter=None):
         """
         分析代码，生成中间JSON
         
@@ -37,6 +37,7 @@ class CodeReverse:
             input_path: 输入文件或目录
             output_path: 输出目录
             file_patterns: 要处理的文件模式列表
+            bundle_filter: 过滤bundle文件名的关键字，用于指定要处理的特定bundle
             
         Returns:
             bool: 是否成功
@@ -58,15 +59,32 @@ class CodeReverse:
         files_to_process = []
         if os.path.isfile(input_path):
             # 单个文件
-            files_to_process = [input_path]
+            # 检查是否符合bundle_filter条件
+            if bundle_filter:
+                if bundle_filter.lower() in input_path.lower():
+                    files_to_process = [input_path]
+            else:
+                files_to_process = [input_path]
         else:
             # 目录，根据文件模式收集文件
             for pattern in file_patterns:
                 import glob
                 pattern_path = os.path.join(input_path, '**', pattern)
-                files_to_process.extend(glob.glob(pattern_path, recursive=True))
+                files = glob.glob(pattern_path, recursive=True)
+                
+                # 如果指定了bundle_filter，只保留包含该关键字的文件
+                if bundle_filter:
+                    filtered_files = [f for f in files if bundle_filter.lower() in f.lower()]
+                    files_to_process.extend(filtered_files)
+                    print(f"模式 {pattern} 匹配到 {len(files)} 个文件，过滤后保留 {len(filtered_files)} 个文件")
+                else:
+                    files_to_process.extend(files)
+                    print(f"模式 {pattern} 匹配到 {len(files)} 个文件")
         
-        print(f"找到 {len(files_to_process)} 个文件需要处理")
+        # 去重
+        files_to_process = list(set(files_to_process))
+        
+        print(f"最终找到 {len(files_to_process)} 个文件需要处理")
         
         all_success = True
         

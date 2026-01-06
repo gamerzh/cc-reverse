@@ -44,7 +44,8 @@ def logger():
 @click.option("-v", "--verbose", is_flag=True, default=False, help="显示详细日志")
 @click.option("-s", "--silent", is_flag=True, default=False, help="静默模式，不显示进度")
 @click.option("--version-hint", type=str, default="", help="提示Cocos Creator版本 (2.3.x|2.4.x)")
-def cli(path, output, verbose, silent, version_hint):
+@click.option("--bundle-filter", type=str, default="", help="指定要处理的bundle包关键字，如'fhpoker'，不指定则处理所有bundle")
+def cli(path, output, verbose, silent, version_hint, bundle_filter):
     """Cocos Creator 逆向工程工具"""
     
     # 获取源路径
@@ -70,7 +71,8 @@ def cli(path, output, verbose, silent, version_hint):
             "outputPath": os.path.abspath(output),
             "verbose": verbose,
             "silent": silent,
-            "versionHint": version_hint
+            "versionHint": version_hint,
+            "bundleFilter": bundle_filter
         })
         
         logger()["success"]("逆向工程完成！")
