@@ -1,0 +1,35 @@
+# Cocos Creator 逆向工程工具依赖列表
+
+# 命令行参数处理
+click>=8.0.0
+
+# 终端富文本输出
+rich>=12.0.0
+
+# JavaScript代码解析
+esprima>=4.0.1
+
+# 文件操作和路径处理
+pathlib>=1.0.0
+
+# JSON处理
+json5>=0.9.6
+
+# 正则表达式增强
+regex>=2021.11.10
+
+# 进度条（可选）
+tqdm>=4.62.0
+
+# 日期时间处理
+python-dateutil>=2.8.2
+
+# 类型注解支持
+typing-extensions>=4.0.0
+
+# 调试工具（可选）
+ipython>=8.0.0
+
+# 单元测试
+pytest>=7.0.0
+pytest-cov>=3.0.0

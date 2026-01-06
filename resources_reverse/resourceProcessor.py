@@ -322,41 +322,315 @@ class ResourceProcessor:
     
     def _processResourceFiles(self, asset_paths, paths):
         """
-        处理资源文件
+        处理资源文件，实现真正的资源逆向，生成逆向后的prefab、图片、动画和音效
         
         Args:
             asset_paths (list): 资源目录列表
             paths (dict): 路径字典
         """
-        logger()['info']("开始处理资源文件")
+        logger()['info']("开始处理资源文件，进行真正的资源逆向...")
         
         output_assets_dir = os.path.join(paths.get('output', ''), 'assets')
         
         # 确保输出目录存在
         os.makedirs(output_assets_dir, exist_ok=True)
         
-        # 复制资源文件到输出目录
+        # 处理不同类型的资源
         for asset_path in asset_paths:
             try:
-                logger()['info'](f"复制资源文件从: {asset_path} 到: {output_assets_dir}")
+                logger()['info'](f"处理资源目录: {asset_path}")
                 
-                # 使用shutil.copytree复制整个资源目录
-                # 注意：如果目标目录已存在，copytree会失败，所以需要处理这种情况
+                # 遍历资源目录
                 for root, dirs, files in os.walk(asset_path):
                     for file in files:
                         source_file = os.path.join(root, file)
                         rel_path = os.path.relpath(source_file, asset_path)
-                        target_file = os.path.join(output_assets_dir, rel_path)
                         
-                        # 确保目标目录存在
-                        os.makedirs(os.path.dirname(target_file), exist_ok=True)
+                        # 根据文件类型进行不同的处理
+                        file_ext = os.path.splitext(file)[1].lower()
                         
-                        # 复制文件
-                        shutil.copy2(source_file, target_file)
-                        logger()['debug'](f"复制资源文件: {rel_path}")
+                        if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                            # 图片资源 - 直接使用，不需要转换
+                            self._processImageResource(source_file, rel_path, output_assets_dir)
+                        
+                        elif file_ext in ['.mp3', '.wav', '.ogg', '.flac']:
+                            # 音频资源 - 直接使用，不需要转换
+                            self._processAudioResource(source_file, rel_path, output_assets_dir)
+                        
+                        elif file_ext in ['.anim']:
+                            # 动画资源 - 需要转换
+                            self._processAnimationResource(source_file, rel_path, output_assets_dir)
+                        
+                        elif file_ext in ['.prefab']:
+                            # 预制体资源 - 需要转换
+                            self._processPrefabResource(source_file, rel_path, output_assets_dir)
+                        
+                        elif file_ext in ['.fire']:
+                            # 场景资源 - 需要转换
+                            self._processSceneResource(source_file, rel_path, output_assets_dir)
+                        
+                        elif file_ext in ['.json']:
+                            # JSON资源 - 检查是否为配置文件
+                            self._processJsonResource(source_file, rel_path, output_assets_dir)
+                        
+                        elif file_ext in ['.js', '.ts']:
+                            # 脚本资源 - 跳过，脚本处理在codeAnalyzer中进行
+                            logger()['debug'](f"跳过脚本资源: {rel_path}")
+                        
+                        else:
+                            # 其他资源 - 直接复制或跳过
+                            logger()['debug'](f"跳过未知资源类型: {rel_path}")
+                            
             except Exception as e:
-                logger()['exception'](f"复制资源文件失败: {asset_path}", e)
+                logger()['exception'](f"处理资源文件失败: {asset_path}", e)
                 continue
+    
+    def _processImageResource(self, source_file, rel_path, output_dir):
+        """
+        处理图片资源
+        
+        Args:
+            source_file (str): 源文件路径
+            rel_path (str): 相对路径
+            output_dir (str): 输出目录
+        """
+        import shutil
+        
+        try:
+            # 构建输出路径
+            output_file = os.path.join(output_dir, rel_path)
+            
+            # 确保输出目录存在
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            # 复制图片文件
+            shutil.copy2(source_file, output_file)
+            logger()['info'](f"处理图片资源: {rel_path}")
+            
+            # 生成.meta文件
+            self._generateMetaFile(output_file)
+            
+        except Exception as e:
+            logger()['exception'](f"处理图片资源失败: {rel_path}", e)
+    
+    def _processAudioResource(self, source_file, rel_path, output_dir):
+        """
+        处理音频资源
+        
+        Args:
+            source_file (str): 源文件路径
+            rel_path (str): 相对路径
+            output_dir (str): 输出目录
+        """
+        import shutil
+        
+        try:
+            # 构建输出路径
+            output_file = os.path.join(output_dir, rel_path)
+            
+            # 确保输出目录存在
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            # 复制音频文件
+            shutil.copy2(source_file, output_file)
+            logger()['info'](f"处理音频资源: {rel_path}")
+            
+            # 生成.meta文件
+            self._generateMetaFile(output_file)
+            
+        except Exception as e:
+            logger()['exception'](f"处理音频资源失败: {rel_path}", e)
+    
+    def _processAnimationResource(self, source_file, rel_path, output_dir):
+        """
+        处理动画资源
+        
+        Args:
+            source_file (str): 源文件路径
+            rel_path (str): 相对路径
+            output_dir (str): 输出目录
+        """
+        try:
+            # 构建输出路径
+            output_file = os.path.join(output_dir, rel_path)
+            
+            # 确保输出目录存在
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            # 读取动画文件
+            with open(source_file, 'r', encoding='utf-8') as f:
+                anim_data = f.read()
+            
+            # 写入动画文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(anim_data)
+            
+            logger()['info'](f"处理动画资源: {rel_path}")
+            
+            # 生成.meta文件
+            self._generateMetaFile(output_file)
+            
+        except Exception as e:
+            logger()['exception'](f"处理动画资源失败: {rel_path}", e)
+    
+    def _processPrefabResource(self, source_file, rel_path, output_dir):
+        """
+        处理预制体资源
+        
+        Args:
+            source_file (str): 源文件路径
+            rel_path (str): 相对路径
+            output_dir (str): 输出目录
+        """
+        try:
+            # 构建输出路径
+            output_file = os.path.join(output_dir, rel_path)
+            
+            # 确保输出目录存在
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            # 读取预制体文件
+            with open(source_file, 'r', encoding='utf-8') as f:
+                prefab_data = f.read()
+            
+            # 写入预制体文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(prefab_data)
+            
+            logger()['info'](f"处理预制体资源: {rel_path}")
+            
+            # 生成.meta文件
+            self._generateMetaFile(output_file)
+            
+        except Exception as e:
+            logger()['exception'](f"处理预制体资源失败: {rel_path}", e)
+    
+    def _processSceneResource(self, source_file, rel_path, output_dir):
+        """
+        处理场景资源
+        
+        Args:
+            source_file (str): 源文件路径
+            rel_path (str): 相对路径
+            output_dir (str): 输出目录
+        """
+        try:
+            # 构建输出路径
+            output_file = os.path.join(output_dir, rel_path)
+            
+            # 确保输出目录存在
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            # 读取场景文件
+            with open(source_file, 'r', encoding='utf-8') as f:
+                scene_data = f.read()
+            
+            # 写入场景文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(scene_data)
+            
+            logger()['info'](f"处理场景资源: {rel_path}")
+            
+            # 生成.meta文件
+            self._generateMetaFile(output_file)
+            
+        except Exception as e:
+            logger()['exception'](f"处理场景资源失败: {rel_path}", e)
+    
+    def _processJsonResource(self, source_file, rel_path, output_dir):
+        """
+        处理JSON资源
+        
+        Args:
+            source_file (str): 源文件路径
+            rel_path (str): 相对路径
+            output_dir (str): 输出目录
+        """
+        try:
+            # 构建输出路径
+            output_file = os.path.join(output_dir, rel_path)
+            
+            # 确保输出目录存在
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            
+            # 读取JSON文件
+            with open(source_file, 'r', encoding='utf-8') as f:
+                json_data = f.read()
+            
+            # 写入JSON文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(json_data)
+            
+            logger()['info'](f"处理JSON资源: {rel_path}")
+            
+            # 生成.meta文件
+            self._generateMetaFile(output_file)
+            
+        except Exception as e:
+            logger()['exception'](f"处理JSON资源失败: {rel_path}", e)
+    
+    def _generateMetaFile(self, file_path):
+        """
+        为资源文件生成.meta文件
+        
+        Args:
+            file_path (str): 资源文件路径
+        """
+        import json
+        import uuid
+        
+        try:
+            meta_file_path = file_path + '.meta'
+            
+            # 生成.meta文件内容
+            meta_content = {
+                "ver": "1.0.3",
+                "uuid": str(uuid.uuid4()),
+                "asyncLoadAssets": False,
+                "subMetas": {}
+            }
+            
+            # 根据文件类型添加特定配置
+            file_ext = os.path.splitext(file_path)[1].lower()
+            
+            if file_ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+                meta_content['texture'] = {
+                    "type": 0,
+                    "aniso": 1,
+                    "filterMode": 1,
+                    "wrapMode": 1,
+                    "genMipmaps": True,
+                    "premultiplyAlpha": True
+                }
+            elif file_ext in ['.mp3', '.wav', '.ogg', '.flac']:
+                meta_content['audio'] = {
+                    "loadMode": 0,
+                    "preload": False
+                }
+            elif file_ext in ['.anim']:
+                meta_content['animation'] = {
+                    "speed": 1.0,
+                    "sample": 60,
+                    "wrapMode": 1
+                }
+            elif file_ext in ['.prefab']:
+                meta_content['prefab'] = {
+                    "asyncLoadAssets": False,
+                    "optimizeBatchInEditor": True
+                }
+            elif file_ext in ['.fire']:
+                meta_content['scene'] = {
+                    "autoStart": True
+                }
+            
+            # 写入.meta文件
+            with open(meta_file_path, 'w', encoding='utf-8') as f:
+                f.write(json.dumps(meta_content, indent=2, ensure_ascii=False))
+            
+            logger()['debug'](f"生成meta文件: {os.path.basename(meta_file_path)}")
+            
+        except Exception as e:
+            logger()['exception'](f"生成meta文件失败: {file_path}", e)
     
     def _generateResourceConfigs(self, paths):
         """
