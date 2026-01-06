@@ -27,8 +27,15 @@ class CodeAnalyzer:
             code (str): JavaScript代码
             file_path (str): 可选的文件路径
         """
-        from reverse.utils.logger import logger
-        logger().debug(f"开始分析代码... 文件: {file_path}")
+        # 重新实现logger函数，避免依赖外部模块
+        def logger():
+            return {
+                "debug": lambda msg, **kwargs: print(f"[DEBUG] {msg}"),
+                "info": lambda msg, **kwargs: print(f"[INFO] {msg}"),
+                "warn": lambda msg, **kwargs: print(f"[WARN] {msg}"),
+                "error": lambda msg, **kwargs: print(f"[ERROR] {msg}")
+            }
+        logger()["debug"](f"开始分析代码... 文件: {file_path}")
         
         try:
             # 使用esprima解析JavaScript代码
@@ -45,17 +52,17 @@ class CodeAnalyzer:
             
             # 如果esprima没有检测到任何组件，使用正则表达式回退
             if scripts_count == 0:
-                logger().warn("esprima未检测到组件，使用正则表达式回退分析")
+                logger()["warn"]("esprima未检测到组件，使用正则表达式回退分析")
                 self._fallbackAnalysis(code, file_path)
                 scripts_count = len(self.analyzed_data["components"])
             
-            logger().info(f"代码分析完成，检测到 {scripts_count} 个cc.Class定义")
+            logger()["info"](f"代码分析完成，检测到 {scripts_count} 个cc.Class定义")
             
             # 简单的代码特征提取
             self.analyzed_data["scripts_count"] = scripts_count
             self.analyzed_data["code_length"] = len(code)
         except Exception as e:
-            logger().error(f"代码解析失败: {e}")
+            logger()["error"](f"代码解析失败: {e}")
             # 回退到更健壮的字符串匹配
             self._fallbackAnalysis(code, file_path)
     
@@ -67,10 +74,17 @@ class CodeAnalyzer:
             code (str): JavaScript代码
             file_path (str): 可选的文件路径
         """
-        from utils.logger import logger
         import re
         
-        logger().debug(f"使用正则表达式分析代码... 文件: {file_path}")
+        # 重新实现logger函数
+        def logger():
+            return {
+                "debug": lambda msg, **kwargs: print(f"[DEBUG] {msg}"),
+                "info": lambda msg, **kwargs: print(f"[INFO] {msg}"),
+                "warn": lambda msg, **kwargs: print(f"[WARN] {msg}"),
+                "error": lambda msg, **kwargs: print(f"[ERROR] {msg}")
+            }
+        logger()["debug"](f"使用正则表达式分析代码... 文件: {file_path}")
         
         # 支持多种Cocos Creator代码模式
         patterns = [
@@ -93,7 +107,7 @@ class CodeAnalyzer:
             matches = re.findall(pattern, code)
             if matches:
                 class_matches.extend(matches)
-                logger().debug(f"模式 {pattern[:30]}... 匹配到 {len(matches)} 个结果")
+                logger()["debug"](f"模式 {pattern[:30]}... 匹配到 {len(matches)} 个结果")
         
         # 去重
         seen = set()
@@ -104,7 +118,7 @@ class CodeAnalyzer:
                 unique_matches.append(match)
         
         scripts_count = len(unique_matches)
-        logger().warn(f"使用正则表达式匹配，检测到 {scripts_count} 个cc.Class定义")
+        logger()["warn"](f"使用正则表达式匹配，检测到 {scripts_count} 个cc.Class定义")
         
         for class_match in unique_matches:
             # 尝试提取类名
@@ -146,7 +160,7 @@ class CodeAnalyzer:
             }
             
             self.analyzed_data["components"].append(class_info)
-            logger().info(f"提取到组件: {class_info['name']} 继承自 {class_info['extends']}")
+            logger()["info"](f"提取到组件: {class_info['name']} 继承自 {class_info['extends']}")
         
         self.analyzed_data["scripts_count"] = scripts_count
         self.analyzed_data["code_length"] = len(code)
@@ -159,7 +173,12 @@ class CodeAnalyzer:
             nodes (list): AST节点列表
             file_path (str): 可选的文件路径
         """
-        from utils.logger import logger
+        # 重新实现logger函数
+        def logger():
+            return {
+                "debug": lambda msg, **kwargs: print(f"[DEBUG] {msg}"),
+                "info": lambda msg, **kwargs: print(f"[INFO] {msg}")
+            }
         
         for node in nodes:
             if isinstance(node, dict):
@@ -193,7 +212,12 @@ class CodeAnalyzer:
             class_data (dict): 类数据AST节点
             file_path (str): 可选的文件路径
         """
-        from utils.logger import logger
+        # 重新实现logger函数
+        def logger():
+            return {
+                "debug": lambda msg, **kwargs: print(f"[DEBUG] {msg}"),
+                "info": lambda msg, **kwargs: print(f"[INFO] {msg}")
+            }
         
         if class_data.get("type") == "ObjectExpression":
             class_info = {
@@ -270,7 +294,7 @@ class CodeAnalyzer:
                         class_info[key_name] = self._extractPropertyValue(prop_value)
             
             if class_info["name"]:
-                logger().info(f"找到cc.Class定义: {class_info['name']} 继承自 {class_info['extends']}")
+                logger()["info"](f"找到cc.Class定义: {class_info['name']} 继承自 {class_info['extends']}")
                 self.analyzed_data["components"].append(class_info)
     
     def _extractMethodInfo(self, method_node):
@@ -365,16 +389,23 @@ class CodeAnalyzer:
         Args:
             file_paths (list): 文件路径列表
         """
-        from utils.logger import logger
-        from utils.fileManager import fileManager
+        # 重新实现logger函数
+        def logger():
+            return {
+                "debug": lambda msg, **kwargs: print(f"[DEBUG] {msg}"),
+                "info": lambda msg, **kwargs: print(f"[INFO] {msg}"),
+                "error": lambda msg, **kwargs: print(f"[ERROR] {msg}")
+            }
         
         for file_path in file_paths:
             try:
-                logger().info(f"分析文件: {file_path}")
-                code = fileManager.readFile(file_path)
+                logger()["info"](f"分析文件: {file_path}")
+                # 直接使用open函数读取文件，避免依赖fileManager
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    code = f.read()
                 self.analyze(code, file_path)
             except Exception as e:
-                logger().error(f"分析文件 {file_path} 失败: {e}")
+                logger()["error"](f"分析文件 {file_path} 失败: {e}")
     
     def generateScripts(self, output_path):
         """
@@ -383,10 +414,15 @@ class CodeAnalyzer:
         Args:
             output_path (str): 输出目录路径
         """
-        from utils.logger import logger
-        from utils.fileManager import fileManager
+        # 重新实现logger函数
+        def logger():
+            return {
+                "debug": lambda msg, **kwargs: print(f"[DEBUG] {msg}"),
+                "info": lambda msg, **kwargs: print(f"[INFO] {msg}"),
+                "error": lambda msg, **kwargs: print(f"[ERROR] {msg}")
+            }
         
-        logger().info(f"生成脚本文件到: {output_path}")
+        logger()["info"](f"生成脚本文件到: {output_path}")
         
         # 确保输出目录存在
         scripts_dir = os.path.join(output_path, "assets", "scripts")
@@ -398,8 +434,10 @@ class CodeAnalyzer:
             script_name = component.get("name", "Unknown") + ".ts"
             script_path = os.path.join(scripts_dir, script_name)
             
-            fileManager.writeFile(script_path, script_content)
-            logger().info(f"生成脚本: {script_path}")
+            # 直接使用open函数写入文件，避免依赖fileManager
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(script_content)
+            logger()["info"](f"生成脚本: {script_path}")
     
     def _generateScriptContent(self, component):
         """

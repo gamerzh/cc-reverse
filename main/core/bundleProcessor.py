@@ -11,22 +11,57 @@ import shutil
 from pathlib import Path
 
 # 导入项目工具
-from reverse.utils.logger import logger
-from reverse.utils.fileManager import fileManager
-
-# 导入外部工具
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 修复sys.path，确保能找到main.tools
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+# 重新实现logger函数，避免依赖外部模块
+def logger():
+    def info(msg, **kwargs):
+        print(f"[INFO] {msg}")
+    
+    def success(msg, **kwargs):
+        print(f"[SUCCESS] {msg}")
+    
+    def warn(msg, **kwargs):
+        print(f"[WARN] {msg}")
+    
+    def error(msg, **kwargs):
+        print(f"[ERROR] {msg}")
+    
+    def debug(msg, **kwargs):
+        print(f"[DEBUG] {msg}")
+    
+    def set_level(level):
+        pass
+    
+    def set_verbose(verbose):
+        pass
+    
+    def exception(msg, e, **kwargs):
+        print(f"[EXCEPTION] {msg}: {e}")
+    
+    return {
+        "info": info,
+        "success": success,
+        "warn": warn,
+        "error": error,
+        "debug": debug,
+        "set_level": set_level,
+        "set_verbose": set_verbose,
+        "exception": exception
+    }
 
 # 尝试导入bundle_extractor和module_converter
 try:
-    from reverse.tools import bundle_extractor
-    from reverse.tools import module_converter
+    from main.tools import bundle_extractor
+    from main.tools import module_converter
     EXTERNAL_TOOLS_AVAILABLE = True
 except ImportError as e:
-    logger().warn(f"无法导入外部工具: {e}")
+    logger()["warn"](f"无法导入外部工具: {e}")
     EXTERNAL_TOOLS_AVAILABLE = False
+
 
 class BundleProcessor:
     """bundle文件处理器"""
@@ -38,7 +73,8 @@ class BundleProcessor:
     def is_webpack_bundle(self, file_path):
         """检查文件是否为Webpack打包的bundle"""
         try:
-            content = fileManager.readFile(file_path)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
             # Webpack bundle的常见特征
             webpack_patterns = [
                 r'window\.__require\s*=\s*function',
@@ -60,7 +96,7 @@ class BundleProcessor:
                 
             return False
         except Exception as e:
-            logger().warn(f"检查bundle文件失败 {file_path}: {e}")
+            logger()["warn"](f"检查bundle文件失败 {file_path}: {e}")
             return False
     
     def extract_bundle_modules(self, bundle_path, output_dir=None):
@@ -74,9 +110,9 @@ class BundleProcessor:
         Returns:
             dict: 提取的模块信息
         """
-        from utils.logger import logger
+        # 使用本地logger函数，不再导入外部logger
         
-        logger().info(f"提取bundle: {bundle_path}")
+        logger()["info"](f"提取bundle: {bundle_path}")
         
         # 如果未指定输出目录，则在bundle所在目录下创建script目录
         if output_dir is None:
@@ -91,7 +127,7 @@ class BundleProcessor:
             saved_count, extracted_output_dir = bundle_extractor.extract_bundle(bundle_path, output_dir)
             
             if saved_count == 0:
-                logger().warn(f"未从 {bundle_path} 提取到任何模块")
+                logger()["warn"](f"未从 {bundle_path} 提取到任何模块")
                 return {}
             
             # 获取保存的模块文件列表
@@ -100,7 +136,7 @@ class BundleProcessor:
                 if item.endswith('.js'):
                     saved_modules.append(item)
             
-            logger().success(f"从 {os.path.basename(bundle_path)} 成功提取 {len(saved_modules)} 个模块到 {extracted_output_dir}")
+            logger()["success"](f"从 {os.path.basename(bundle_path)} 成功提取 {len(saved_modules)} 个模块到 {extracted_output_dir}")
             
             # 记录提取信息
             bundle_name = os.path.basename(bundle_path)
@@ -114,7 +150,7 @@ class BundleProcessor:
             return self.extracted_modules[bundle_name]
             
         except Exception as e:
-            logger().error(f"提取bundle失败 {bundle_path}: {e}")
+            logger()["error"](f"提取bundle失败 {bundle_path}: {e}")
             return {}
     
     def _extract_modules_from_bundle(self, content):
@@ -202,15 +238,15 @@ class BundleProcessor:
         Returns:
             list: 转换后的类信息
         """
-        from utils.logger import logger
+        # 使用本地logger函数，不再导入外部logger
         
         if not extracted_info:
-            logger().warn("没有可转换的模块信息")
+            logger()["warn"]("没有可转换的模块信息")
             return []
         
         modules_dir = extracted_info.get('output_dir')
         if not modules_dir or not os.path.exists(modules_dir):
-            logger().error(f"模块目录不存在: {modules_dir}")
+            logger()["error"](f"模块目录不存在: {modules_dir}")
             return []
         
         # 如果未指定输出目录，则根据格式处理
@@ -234,7 +270,7 @@ class BundleProcessor:
             logger().warn(f"模块目录中没有找到.js文件: {modules_dir}")
             return []
         
-        logger().info(f"开始转换 {len(js_files)} 个模块为{format}...")
+        logger()["info"](f"开始转换 {len(js_files)} 个模块为{format}...")
         
         converted_classes = []
         
@@ -250,13 +286,13 @@ class BundleProcessor:
                 try:
                     # 尝试使用结构化AST处理
                     results = converter.process_module_with_structured_ast(js_file, output_format=format)
-                    logger().debug(f"使用混合架构处理文件: {js_file}")
+                    logger()["debug"](f"使用混合架构处理文件: {js_file}")
                 except Exception as e:
-                    logger().warn(f"混合架构处理失败，回退到传统处理: {e}")
+                    logger()["warn"](f"混合架构处理失败，回退到传统处理: {e}")
                 
                 # 如果混合架构失败，使用传统方式处理
                 if not results:
-                    logger().debug(f"使用传统方式处理文件: {js_file}")
+                    logger()["debug"](f"使用传统方式处理文件: {js_file}")
                     results = converter.process_module_file(js_file, output_format=format)
                 
                 if results:
@@ -305,13 +341,13 @@ class BundleProcessor:
                                 'class_info': result['class_info']
                             })
                             
-                            logger().debug(f"转换: {os.path.basename(js_file)} -> {os.path.basename(output_path)}")
+                            logger()["debug"](f"转换: {os.path.basename(js_file)} -> {os.path.basename(output_path)}")
                 else:
-                    logger().debug(f"未从 {os.path.basename(js_file)} 提取到类信息")
+                    logger()["debug"](f"未从 {os.path.basename(js_file)} 提取到类信息")
             except Exception as e:
-                logger().error(f"转换模块失败 {js_file}: {e}")
+                logger()["error"](f"转换模块失败 {js_file}: {e}")
         
-        logger().success(f"成功转换 {len(converted_classes)} 个类为{format}到 {output_dir}")
+        logger()["success"](f"成功转换 {len(converted_classes)} 个类为{format}到 {output_dir}")
         
         self.converted_classes.extend(converted_classes)
         return converted_classes
@@ -455,9 +491,9 @@ class BundleProcessor:
         Returns:
             dict: 处理结果
         """
-        from utils.logger import logger
+        # 使用本地logger函数，不再导入外部logger
         
-        logger().info(f"开始完整处理bundle文件: {bundle_path}")
+        logger()["info"](f"开始完整处理bundle文件: {bundle_path}")
         
         # 确定输出目录结构
         bundle_dir = os.path.dirname(bundle_path)
@@ -467,11 +503,11 @@ class BundleProcessor:
         # 在输出目录中创建对应的bundle目录结构
         rel_path = os.path.relpath(bundle_dir, res_path)
         bundle_output_dir = os.path.join(output_base_dir, rel_path)
-        logger().debug(f"bundle_dir: {bundle_dir}")
-        logger().debug(f"res_path: {res_path}")
-        logger().debug(f"rel_path: {rel_path}")
-        logger().debug(f"output_base_dir: {output_base_dir}")
-        logger().debug(f"bundle_output_dir: {bundle_output_dir}")
+        logger()["debug"](f"bundle_dir: {bundle_dir}")
+        logger()["debug"](f"res_path: {res_path}")
+        logger()["debug"](f"rel_path: {rel_path}")
+        logger()["debug"](f"output_base_dir: {output_base_dir}")
+        logger()["debug"](f"bundle_output_dir: {bundle_output_dir}")
         
         # 提取模块
         extraction_result = self.extract_bundle_modules(bundle_path, bundle_output_dir)

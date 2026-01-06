@@ -43,8 +43,7 @@ def loadConfig():
             # 合并用户配置到默认配置
             config = mergeConfig(config, user_config)
         except Exception as e:
-            from utils.logger import logger
-            logger().warn(f"加载配置文件失败: {e}")
+            print(f"[WARN] 加载配置文件失败: {e}")
     
     return config
 

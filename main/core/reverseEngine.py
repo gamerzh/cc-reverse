@@ -7,10 +7,48 @@ import os
 import sys
 import shutil
 import json
-from reverse.utils.fileManager import fileManager
-from reverse.utils.logger import logger
-from reverse.config.configLoader import loadConfig
-from reverse.core.bundleProcessor import bundleProcessor
+# 重新实现logger函数，避免依赖外部模块
+def logger():
+    def info(msg, **kwargs):
+        print(f"[INFO] {msg}")
+    
+    def success(msg, **kwargs):
+        print(f"[SUCCESS] {msg}")
+    
+    def warn(msg, **kwargs):
+        print(f"[WARN] {msg}")
+    
+    def error(msg, **kwargs):
+        print(f"[ERROR] {msg}")
+    
+    def debug(msg, **kwargs):
+        print(f"[DEBUG] {msg}")
+    
+    def exception(msg, e, **kwargs):
+        print(f"[EXCEPTION] {msg}: {e}")
+    
+    def set_level(level):
+        pass
+    
+    def set_verbose(verbose):
+        pass
+    
+    return {
+        "info": info,
+        "success": success,
+        "warn": warn,
+        "error": error,
+        "debug": debug,
+        "exception": exception,
+        "set_level": set_level,
+        "set_verbose": set_verbose
+    }
+# 直接导入configLoader模块，避免路径问题
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+from config.configLoader import loadConfig
+from main.core.bundleProcessor import bundleProcessor
 
 global_config = {}
 global_verbose = False
@@ -48,37 +86,40 @@ def reverseProject(options):
     log_level = "debug" if verbose else "info"
     if silent:
         log_level = "error"
-    logger().set_level(log_level)
-    logger().set_verbose(verbose)
+    logger()["set_level"](log_level)
+    logger()["set_verbose"](verbose)
     
-    logger().info(f"开始处理项目: {source_path}", output=output_path)
-    logger().info(f"使用Cocos Creator版本提示: {version_hint}")
+    logger()["info"](f"开始处理项目: {source_path}")
+    logger()["info"](f"使用Cocos Creator版本提示: {version_hint}")
     
     try:
         # 检测Cocos Creator版本并设置相应的文件路径
-        logger().info("检测Cocos Creator版本...")
+        logger()["info"]("检测Cocos Creator版本...")
         project_info = detectProjectVersion(source_path, version_hint)
         global_cocosVersion = project_info['version']
-        logger().success(f"成功检测到Cocos Creator版本: {global_cocosVersion}")
+        logger()["success"](f"成功检测到Cocos Creator版本: {global_cocosVersion}")
         
         # 检查文件是否存在
-        logger().info("验证项目文件路径...")
+        logger()["info"]("验证项目文件路径...")
         validatePaths(project_info['resPath'], project_info['settingsPath'], project_info['projectPath'])
-        logger().success("项目文件路径验证通过")
+        logger()["success"]("项目文件路径验证通过")
         
         # 创建临时目录和输出目录
         temp_path = os.path.join(output_path, 'temp')
         ast_path = os.path.join(temp_path, 'ast')
         
         # 创建目录
-        logger().info(f"创建工作目录: {output_path}")
+        logger()["info"](f"创建工作目录: {output_path}")
         os.makedirs(temp_path, exist_ok=True)
         os.makedirs(ast_path, exist_ok=True)
         os.makedirs(output_path, exist_ok=True)
         
         # 保存全局路径信息
         global global_paths
-        logger().info(f"设置全局路径: source={source_path}, res={project_info['resPath']}")
+        logger()["info"](f"设置全局路径: source={source_path}, res={project_info['resPath']}")
+        
+        # 保存全局路径信息
+        global global_paths
         global_paths = {
             'source': source_path,
             'output': output_path,
@@ -86,10 +127,10 @@ def reverseProject(options):
             'temp': temp_path,
             'ast': ast_path
         }
-        logger().debug(f"全局路径设置完成: {global_paths}")
+        logger()["debug"](f"全局路径设置完成: {global_paths}")
         
         # 读取项目文件
-        logger().info("读取项目配置文件...")
+        logger()["info"]("读取项目配置文件...")
         with open(project_info['settingsPath'], 'rb') as f:
             settings = f.read()
         
@@ -97,36 +138,36 @@ def reverseProject(options):
             project = f.read()
         
         code = project.decode('utf-8')
-        logger().success("成功读取项目配置文件")
+        logger()["success"]("成功读取项目配置文件")
         
         # 解析设置
-        logger().info("解析项目设置...")
+        logger()["info"]("解析项目设置...")
         parseSettings(settings)
-        logger().success("项目设置解析完成")
+        logger()["success"]("项目设置解析完成")
         
         # 导入需要在全局变量设置后使用的模块
-        from core.codeAnalyzer import codeAnalyzer
-        from core.resourceProcessor import resourceProcessor
-        from core.projectGenerator import projectGenerator
+        from main.core.codeAnalyzer import codeAnalyzer
+        from resources.resourceProcessor import resourceProcessor
+        from main.core.projectGenerator import projectGenerator
         
         # 先创建项目结构
-        logger().info("创建项目目录结构...")
+        logger()["info"]("创建项目目录结构...")
         projectGenerator._createProjectStructure(global_paths)
-        logger().success("项目目录结构创建完成")
+        logger()["success"]("项目目录结构创建完成")
         
         # 分析主项目文件
-        logger().info('开始分析主项目文件...')
+        logger()["info"]('开始分析主项目文件...')
         codeAnalyzer.analyze(code)
         components_count = len(codeAnalyzer.analyzed_data.get('components', []))
-        logger().success(f"主项目文件分析完成，检测到 {components_count} 个组件")
+        logger()["success"](f"主项目文件分析完成，检测到 {components_count} 个组件")
         
         if components_count > 0:
-            logger().info(f"检测到的组件: {[c.get('name') for c in codeAnalyzer.analyzed_data.get('components', [])]}")
+            logger()["info"](f"检测到的组件: {[c.get('name') for c in codeAnalyzer.analyzed_data.get('components', [])]}")
         
         # 分析settings中列出的所有JavaScript文件
         js_list = global_settings.get('CCSettings', {}).get('jsList', [])
         if js_list:
-            logger().info(f'开始分析 {len(js_list)} 个额外脚本文件...')
+            logger()["info"](f'开始分析 {len(js_list)} 个额外脚本文件...')
             source_path = global_paths.get('source', '')
             js_files = []
             missing_files = []
@@ -152,25 +193,25 @@ def reverseProject(options):
                     missing_files.append(js_file)
         
         # 报告缺失的文件
-        if missing_files:
-            logger().warn(f'未找到 {len(missing_files)} 个脚本文件: {missing_files[:5]}{"..." if len(missing_files) > 5 else ""}')
+            if missing_files:
+                logger()["warn"](f'未找到 {len(missing_files)} 个脚本文件: {missing_files[:5]}{"..." if len(missing_files) > 5 else ""}')
         
         # 分析所有找到的脚本文件
         if js_files:
-            logger().info(f'分析找到的 {len(js_files)} 个脚本文件...')
+            logger()["info"](f'分析找到的 {len(js_files)} 个脚本文件...')
             codeAnalyzer.analyzeMultipleFiles(js_files)
-            logger().success(f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
+            logger()["success"](f'额外脚本文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
         
         # 查找并处理Webpack bundle文件
-        logger().info('开始查找并处理Webpack bundle文件...')
+        logger()["info"]('开始查找并处理Webpack bundle文件...')
         index_files = []  # 初始化index_files列表，用于收集所有要分析的脚本文件
         bundle_files = find_bundle_files(global_paths['res'])
         if bundle_files:
-            logger().info(f'找到 {len(bundle_files)} 个可能的bundle文件')
+            logger()["info"](f'找到 {len(bundle_files)} 个可能的bundle文件')
             for i, bf in enumerate(bundle_files[:5]):  # 只显示前5个
-                logger().debug(f'  [{i+1}] {bf}')
+                logger()["debug"](f'  [{i+1}] {bf}')
             if len(bundle_files) > 5:
-                logger().debug(f'  ... 还有 {len(bundle_files)-5} 个文件')
+                logger()["debug"](f'  ... 还有 {len(bundle_files)-5} 个文件')
             processed_bundles = process_bundle_files(bundle_files, global_paths['output'], global_paths['res'])
             # 将处理生成的TypeScript文件添加到分析列表
             for bundle_result in processed_bundles:
@@ -183,12 +224,12 @@ def reverseProject(options):
                             ts_files = [os.path.join(ts_dir, f) for f in os.listdir(ts_dir) if f.endswith('.ts')]
                             if ts_files:
                                 index_files.extend(ts_files)
-                                logger().debug(f"添加 {len(ts_files)} 个TypeScript文件到分析列表")
+                                logger()["debug"](f"添加 {len(ts_files)} 个TypeScript文件到分析列表")
         else:
-            logger().info('未找到Webpack bundle文件')
+            logger()["info"]('未找到Webpack bundle文件')
         
         # 查找并分析所有index.*.js文件（包含编译后的游戏逻辑）
-        logger().info('开始查找并分析index.*.js文件...')
+        logger()["info"]('开始查找并分析index.*.js文件...')
         import glob
         source_path = global_paths.get('source', '')
         # index_files = []  # 已经在前面的bundle处理中初始化
@@ -202,67 +243,67 @@ def reverseProject(options):
             matches = glob.glob(pattern)
             if matches:
                 index_files.extend(matches)
-                logger().debug(f'模式 {pattern} 匹配到 {len(matches)} 个文件')
+                logger()["debug"](f'模式 {pattern} 匹配到 {len(matches)} 个文件')
         
         # 去重
         index_files = list(set(index_files))
-        logger().info(f'找到 {len(index_files)} 个index.*.js文件')
+        logger()["info"](f'找到 {len(index_files)} 个index.*.js文件')
         
         # 分析这些文件
         if index_files:
-            logger().info(f'开始分析index.*.js文件...')
+            logger()["info"](f'开始分析index.*.js文件...')
             codeAnalyzer.analyzeMultipleFiles(index_files)
-            logger().success(f'index.*.js文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
+            logger()["success"](f'index.*.js文件分析完成，累计检测到 {len(codeAnalyzer.analyzed_data.get("components", []))} 个组件')
         else:
-            logger().warn('未找到任何index.*.js文件')
+            logger()["warn"]('未找到任何index.*.js文件')
         
         # 处理资源
-        logger().info('开始处理资源...')
+        logger()["info"]('开始处理资源...')
         resourceProcessor.processResources(global_paths)
         resource_stats = resourceProcessor.getResourceStats()
-        logger().success(f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
+        logger()["success"](f'资源处理完成，共处理 {resource_stats["total"]} 个资源')
         
         # 提取脚本文件
-        logger().info('开始提取脚本文件...')
+        logger()["info"]('开始提取脚本文件...')
         extractScriptFiles(global_paths, global_settings)
-        logger().success('脚本文件提取完成')
+        logger()["success"]('脚本文件提取完成')
         
         # 生成脚本文件（如果需要从编译后的代码中提取组件）
         if codeAnalyzer.analyzed_data.get('components', []):
             components_count = len(codeAnalyzer.analyzed_data.get('components', []))
-            logger().info(f'检测到 {components_count} 个组件，开始生成脚本文件...')
+            logger()["info"](f'检测到 {components_count} 个组件，开始生成脚本文件...')
             codeAnalyzer.generateScripts(global_paths.get('output', ''))
-            logger().success(f'脚本文件生成完成，共生成 {components_count} 个脚本文件')
+            logger()["success"](f'脚本文件生成完成，共生成 {components_count} 个脚本文件')
         else:
-            logger().warn('未检测到任何组件')
+            logger()["warn"]('未检测到任何组件')
         
         # 生成项目文件
-        logger().info('生成项目配置文件...')
+        logger()["info"]('生成项目配置文件...')
         projectGenerator.generateProject(global_paths)
-        logger().success(f'项目生成完成，共生成 {len(projectGenerator.getGeneratedFiles())} 个文件')
+        logger()["success"](f'项目生成完成，共生成 {len(projectGenerator.getGeneratedFiles())} 个文件')
         
         # 清理临时文件
         if not verbose:
-            logger().info('清理临时文件...')
-            fileManager.cleanDirectory(temp_path)
-            logger().success('临时文件清理完成')
+            logger()["info"]('清理临时文件...')
+            shutil.rmtree(temp_path, ignore_errors=True)
+            logger()["success"]('临时文件清理完成')
         
-        logger().success(f'逆向工程完成！项目已生成到: {output_path}')
+        logger()["success"](f'逆向工程完成！项目已生成到: {output_path}')
         return True
     except FileNotFoundError as e:
-        logger().exception('项目文件不存在', e)
+        logger()["exception"]('项目文件不存在', e)
         raise
     except PermissionError as e:
-        logger().exception('没有权限访问项目文件', e)
+        logger()["exception"]('没有权限访问项目文件', e)
         raise
     except UnicodeDecodeError as e:
-        logger().exception('项目文件编码错误', e)
+        logger()["exception"]('项目文件编码错误', e)
         raise
     except json.JSONDecodeError as e:
-        logger().exception('项目配置文件解析错误', e)
+        logger()["exception"]('项目配置文件解析错误', e)
         raise
     except Exception as e:
-        logger().exception('处理项目文件时出错', e)
+        logger()["exception"]('处理项目文件时出错', e)
         raise
 
 def detectProjectVersion(sourcePath, versionHint):
@@ -336,7 +377,7 @@ def detectProjectVersion(sourcePath, versionHint):
         if src_settings:
             # 如果找到src/settings*.js，优先使用它
             settings24 = src_settings[0]
-            logger().info(f'优先使用src目录下的settings文件: {settings24}')
+            logger()["info"](f'优先使用src目录下的settings文件: {settings24}')
         else:
             # 否则使用默认查找
             settings24 = findExistingPath(paths24x['settings'])
@@ -348,20 +389,20 @@ def detectProjectVersion(sourcePath, versionHint):
             assets_path = os.path.join(sourcePath, 'assets')
             if os.path.exists(assets_path):
                 res24 = assets_path
-                logger().info(f'使用assets目录作为资源目录: {res24}')
+                logger()["info"](f'使用assets目录作为资源目录: {res24}')
         
         # 对于2.4.15版本，project.js可能不存在，尝试使用settings.js作为project.js
         project24 = findExistingPath(paths24x['project'])
         if not project24 and settings24:
             # 如果找不到project.js，使用settings.js作为project.js
             project24 = settings24
-            logger().info('未找到project.js，使用settings.js作为project.js')
+            logger()["info"]('未找到project.js，使用settings.js作为project.js')
         
         if settings24 and res24:
-            logger().info(f'使用Cocos Creator {versionHint if versionHint == "2.4.15" else "2.4.x"}项目结构')
-            logger().info(f'设置文件: {settings24}')
-            logger().info(f'项目文件: {project24}')
-            logger().info(f'资源目录: {res24}')
+            logger()["info"](f'使用Cocos Creator {versionHint if versionHint == "2.4.15" else "2.4.x"}项目结构')
+            logger()["info"](f'设置文件: {settings24}')
+            logger()["info"](f'项目文件: {project24}')
+            logger()["info"](f'资源目录: {res24}')
             return {
                 'version': '2.4.x',
                 'settingsPath': settings24,
@@ -369,16 +410,16 @@ def detectProjectVersion(sourcePath, versionHint):
                 'resPath': res24
             }
         else:
-            logger().warn(f'用户指定{versionHint if versionHint == "2.4.15" else "2.4.x"}版本，但未找到对应文件结构，尝试自动检测...')
-            logger().warn(f'settings24: {settings24}')
-            logger().warn(f'res24: {res24}')
+            logger()["warn"](f'用户指定{versionHint if versionHint == "2.4.15" else "2.4.x"}版本，但未找到对应文件结构，尝试自动检测...')
+            logger()["warn"](f'settings24: {settings24}')
+            logger()["warn"](f'res24: {res24}')
     elif versionHint == '2.3.x':
         settings23 = findExistingPath(paths23x['settings'])
         project23 = findExistingPath(paths23x['project'])
         res23 = findExistingPath(paths23x['res'])
         
         if settings23 and project23 and res23:
-            logger().info('使用用户指定的Cocos Creator 2.3.x项目结构')
+            logger()["info"]('使用用户指定的Cocos Creator 2.3.x项目结构')
             return {
                 'version': '2.3.x',
                 'settingsPath': settings23,
@@ -386,7 +427,7 @@ def detectProjectVersion(sourcePath, versionHint):
                 'resPath': res23
             }
         else:
-            logger().warn('用户指定2.3.x版本，但未找到对应文件结构，尝试自动检测...')
+            logger()["warn"]('用户指定2.3.x版本，但未找到对应文件结构，尝试自动检测...')
     
     # 自动检测：先尝试2.3.x路径（更精确的检测）
     settings23 = findExistingPath(paths23x['settings'])
@@ -394,7 +435,7 @@ def detectProjectVersion(sourcePath, versionHint):
     res23 = findExistingPath(paths23x['res'])
     
     if settings23 and project23 and res23:
-        logger().info('自动检测到Cocos Creator 2.3.x或更早版本项目结构')
+        logger()["info"]('自动检测到Cocos Creator 2.3.x或更早版本项目结构')
         return {
             'version': '2.3.x',
             'settingsPath': settings23,
@@ -414,21 +455,21 @@ def detectProjectVersion(sourcePath, versionHint):
         assets_path = os.path.join(sourcePath, 'assets')
         if os.path.exists(assets_path):
             res24 = assets_path
-            logger().info(f'使用assets目录作为资源目录: {res24}')
+            logger()["info"](f'使用assets目录作为资源目录: {res24}')
         else:
             # 检查res目录
             res_path = os.path.join(sourcePath, 'res')
             if os.path.exists(res_path):
                 res24 = res_path
-                logger().info(f'使用res目录作为资源目录: {res24}')
+                logger()["info"](f'使用res目录作为资源目录: {res24}')
     
     if settings24:
         # 对于2.4.x版本，project.js可能不存在
         if not project24:
             project24 = settings24
-            logger().info('未找到project.js，使用settings.js作为project.js')
+            logger()["info"]('未找到project.js，使用settings.js作为project.js')
         
-        logger().info('自动检测到Cocos Creator 2.4.x项目结构')
+        logger()["info"]('自动检测到Cocos Creator 2.4.x项目结构')
         return {
             'version': '2.4.x',
             'settingsPath': settings24,
@@ -487,8 +528,8 @@ def parseSettings(settings):
         import re
         import json
         
-        logger().debug('开始解析设置文件...')
-        logger().debug(f'设置文件内容: {settings_content[:200]}...')
+        logger()["debug"]('开始解析设置文件...')
+        logger()["debug"](f'设置文件内容: {settings_content[:200]}...')
         
         # 方法1: 直接执行JavaScript代码获取CCSettings（安全方式）
         try:
@@ -549,7 +590,7 @@ def parseSettings(settings):
                 else:
                     global_settings = {'CCSettings': {}}
         except Exception as e1:
-            logger().debug(f'直接解析失败，尝试提取jsList: {e1}')
+            logger()["debug"](f'直接解析失败，尝试提取jsList: {e1}')
             # 方法2: 提取jsList
             js_list_match = re.search(r'jsList\s*:\s*\[(.*?)\]', settings_content, re.DOTALL)
             if js_list_match:
@@ -565,14 +606,14 @@ def parseSettings(settings):
             global_settings = {'CCSettings': {}}
         
         if global_verbose:
-            logger().debug(f'已加载项目设置: {list(global_settings.get("CCSettings", {}).keys())}')
+            logger()["debug"](f'已加载项目设置: {list(global_settings.get("CCSettings", {}).keys())}')
             if 'jsList' in global_settings['CCSettings']:
-                logger().debug(f'找到 {len(global_settings["CCSettings"]["jsList"])} 个脚本文件')
+                logger()["debug"](f'找到 {len(global_settings["CCSettings"]["jsList"])} 个脚本文件')
                 for js_file in global_settings['CCSettings']['jsList']:
-                    logger().debug(f'  - {js_file}')
+                    logger()["debug"](f'  - {js_file}')
     except Exception as e:
-        logger().error(f'解析设置文件时出错: {e}')
-        logger().warn('使用默认设置')
+        logger()["error"](f'解析设置文件时出错: {e}')
+        logger()["warn"]('使用默认设置')
         global_settings = {'CCSettings': {}}
 
 def extractScriptFiles(paths, settings):
@@ -583,23 +624,21 @@ def extractScriptFiles(paths, settings):
         paths (dict): 路径字典，包含source、output等路径
         settings (dict): 项目设置，包含CCSettings和jsList
     """
-    from utils.logger import logger
-    from utils.fileManager import fileManager
     import shutil
     
     js_list = settings.get('CCSettings', {}).get('jsList', [])
     if not js_list:
-        logger().warn('jsList为空，无法提取脚本文件')
+        logger()["warn"]('jsList为空，无法提取脚本文件')
         return
     
     source_path = paths.get('source', '')
     output_path = paths.get('output', '')
     
     if not source_path or not output_path:
-        logger().error('缺少必要的路径信息')
+        logger()["error"]('缺少必要的路径信息')
         return
     
-    logger().info(f'开始从jsList中提取 {len(js_list)} 个脚本文件...')
+    logger()["info"](f'开始从jsList中提取 {len(js_list)} 个脚本文件...')
     
     copied_count = 0
     missing_count = 0
@@ -627,7 +666,7 @@ def extractScriptFiles(paths, settings):
                 break
         
         if not source_file:
-            logger().debug(f'未找到脚本文件: {js_file_path}')
+            logger()["debug"](f'未找到脚本文件: {js_file_path}')
             missing_count += 1
             continue
         
@@ -657,13 +696,13 @@ def extractScriptFiles(paths, settings):
         try:
             # 复制文件
             shutil.copy2(source_file, output_file_path)
-            logger().debug(f'复制脚本文件: {js_file_path} -> {output_file_path}')
+            logger()["debug"](f'复制脚本文件: {js_file_path} -> {output_file_path}')
             copied_count += 1
         except Exception as e:
-            logger().error(f'复制脚本文件失败 {js_file_path}: {e}')
+            logger()["error"](f'复制脚本文件失败 {js_file_path}: {e}')
             missing_count += 1
     
-    logger().info(f'脚本文件提取完成: 成功 {copied_count} 个, 缺失 {missing_count} 个')
+    logger()["info"](f'脚本文件提取完成: 成功 {copied_count} 个, 缺失 {missing_count} 个')
     
  #    如果从编译后的代码中提取的组件，也生成脚本文件
     # 这部分逻辑在reverseProject中处理
@@ -717,7 +756,7 @@ def process_bundle_files(bundle_files, output_base_dir, res_path):
     Returns:
         list: 处理结果列表
     """
-    from utils.logger import logger
+
     
     results = []
     
@@ -725,7 +764,7 @@ def process_bundle_files(bundle_files, output_base_dir, res_path):
         try:
             # 检查是否为Webpack bundle
             if bundleProcessor.is_webpack_bundle(bundle_file):
-                logger().info(f"处理Webpack bundle: {bundle_file}")
+                logger()["info"](f"处理Webpack bundle: {bundle_file}")
                 
                 # 处理bundle文件
                 result = bundleProcessor.process_bundle_file(bundle_file, output_base_dir, res_path)
@@ -733,13 +772,13 @@ def process_bundle_files(bundle_files, output_base_dir, res_path):
                 results.append(result)
                 
                 if result.get('success'):
-                    logger().success(f"成功处理bundle: {os.path.basename(bundle_file)} (提取 {result.get('extracted_modules', 0)} 个模块, 转换 {result.get('converted_classes', 0)} 个类)")
+                    logger()["success"](f"成功处理bundle: {os.path.basename(bundle_file)} (提取 {result.get('extracted_modules', 0)} 个模块, 转换 {result.get('converted_classes', 0)} 个类)")
                 else:
-                    logger().error(f"处理bundle失败: {os.path.basename(bundle_file)}: {result.get('error', '未知错误')}")
+                    logger()["error"](f"处理bundle失败: {os.path.basename(bundle_file)}: {result.get('error', '未知错误')}")
             else:
-                logger().debug(f"跳过非Webpack bundle文件: {bundle_file}")
+                logger()["debug"](f"跳过非Webpack bundle文件: {bundle_file}")
         except Exception as e:
-            logger().error(f"处理bundle文件时出错 {bundle_file}: {e}")
+            logger()["error"](f"处理bundle文件时出错 {bundle_file}: {e}")
             results.append({
                 'file': bundle_file,
                 'success': False,
