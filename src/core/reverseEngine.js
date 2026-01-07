@@ -95,18 +95,41 @@ async function reverseProject(options) {
  * @returns {Object} 包含版本信息和文件路径的对象
  */
 function detectProjectVersion(sourcePath, versionHint) {
+  // 查找匹配模式的文件
+  function findFileByPattern(directory, pattern) {
+    try {
+      const files = fs.readdirSync(directory);
+      for (const file of files) {
+        if (pattern.test(file)) {
+          return path.resolve(directory, file);
+        }
+      }
+    } catch (err) {
+      // 目录不存在，返回null
+    }
+    return null;
+  }
+
   // 2.4.x版本的可能路径
   const paths24x = {
     // 2.4.x 主要检查build目录下的文件
     settings: [
       path.resolve(sourcePath, 'main.js'),
       path.resolve(sourcePath, 'settings.js'),
-      path.resolve(sourcePath, 'src/settings.js')
+      path.resolve(sourcePath, 'src/settings.js'),
+      // 支持带哈希值的文件名
+      findFileByPattern(sourcePath, /^main\.[a-f0-9]+\.js$/),
+      findFileByPattern(sourcePath, /^settings\.[a-f0-9]+\.js$/),
+      findFileByPattern(path.resolve(sourcePath, 'src'), /^settings\.[a-f0-9]+\.js$/)
     ],
     project: [
       path.resolve(sourcePath, 'project.js'),
       path.resolve(sourcePath, 'main.js'),
-      path.resolve(sourcePath, 'src/project.js')
+      path.resolve(sourcePath, 'src/project.js'),
+      // 支持带哈希值的文件名
+      findFileByPattern(sourcePath, /^project\.[a-f0-9]+\.js$/),
+      findFileByPattern(sourcePath, /^main\.[a-f0-9]+\.js$/),
+      findFileByPattern(path.resolve(sourcePath, 'src'), /^project\.[a-f0-9]+\.js$/)
     ],
     res: [
       path.resolve(sourcePath, 'assets'),
@@ -117,14 +140,28 @@ function detectProjectVersion(sourcePath, versionHint) {
 
   // 2.3.x及以下版本的路径
   const paths23x = {
-    settings: [path.resolve(sourcePath, 'src/settings.js')],
-    project: [path.resolve(sourcePath, 'src/project.js')],
+    settings: [
+      path.resolve(sourcePath, 'src/settings.js'),
+      // 支持带哈希值的文件名
+      findFileByPattern(path.resolve(sourcePath, 'src'), /^settings\.[a-f0-9]+\.js$/)
+    ],
+    project: [
+      path.resolve(sourcePath, 'src/project.js'),
+      // 支持带哈希值的文件名
+      findFileByPattern(path.resolve(sourcePath, 'src'), /^project\.[a-f0-9]+\.js$/)
+    ],
     res: [path.resolve(sourcePath, 'res')]
   };
 
+  // 过滤掉null值
+  function filterNull(arr) {
+    return arr.filter(item => item !== null);
+  }
+
   // 检测文件存在性并确定版本
   function findExistingPath(pathArray) {
-    for (const filePath of pathArray) {
+    const filteredPaths = filterNull(pathArray);
+    for (const filePath of filteredPaths) {
       if (fs.existsSync(filePath)) {
         return filePath;
       }
@@ -201,7 +238,8 @@ function detectProjectVersion(sourcePath, versionHint) {
   throw new Error(`无法检测到有效的Cocos Creator项目结构，请检查输入路径是否正确。
 支持的文件结构：
 2.4.x: main.js/settings.js + project.js/main.js + assets/res目录
-2.3.x: src/settings.js + src/project.js + res目录`);
+2.3.x: src/settings.js + src/project.js + res目录
+也支持带哈希值的文件名，如main.123abc.js`);
 }
 
 /**
