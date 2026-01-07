@@ -7,10 +7,10 @@ import os
 import shutil
 import sys
 
-# 添加src目录到Python路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from core.resourceProcessor import ResourceProcessor
+from resources_reverse.resourceProcessor import ResourceProcessor
 
 # 创建测试目录结构
 test_root = "c:/GitHub/cc-reverse/test_resource_processing"

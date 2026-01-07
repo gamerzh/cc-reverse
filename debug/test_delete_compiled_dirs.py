@@ -7,10 +7,10 @@ import os
 import shutil
 import sys
 
-# 添加src目录到Python路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from utils.fileManager import fileManager
+from main.utils.fileManager import fileManager
 
 # 创建测试目录结构
 test_root = "c:/GitHub/cc-reverse/test_delete_compiled_dirs"
