@@ -9,6 +9,7 @@ const { uuidUtils } = require('../utils/uuidUtils');
 const { fileManager } = require('../utils/fileManager');
 const { logger } = require('../utils/logger');
 const { converters } = require('./converters');
+const { serializationParser } = require('./serializationParser');
 
 // 将 fs 方法转换为 Promise
 const readdir = promisify(fs.readdir);
@@ -572,6 +573,13 @@ const resourceProcessor = {
      */
     async processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure) {
         const ext = path.extname(fileName);
+        
+        // 检查是否是序列化文件（import目录中的JSON文件）
+        if (ext === '.json' && filePath.includes('import')) {
+            await this.processSerializedFile(filePath, fileName, fileKey, bundleName, projectStructure);
+            return;
+        }
+        
         const resourceDir = this.getResourceDirectory(fileName, ext);
         const uuid = fileKey;
         
@@ -621,6 +629,41 @@ const resourceProcessor = {
             this.audio.push({ filePath, fileName, uuid, bundleName });
         } else if (resourceDir === 'textures') {
             this.spriteFrames[fileKey] = { filePath, fileName, uuid, bundleName };
+        }
+    },
+    
+    /**
+     * 处理序列化文件
+     * @param {string} filePath 文件路径
+     * @param {string} fileName 文件名
+     * @param {string} fileKey 文件键名
+     * @param {string} bundleName bundle名称
+     * @param {Object} projectStructure 项目结构信息
+     */
+    async processSerializedFile(filePath, fileName, fileKey, bundleName, projectStructure) {
+        try {
+            // 读取序列化文件
+            const content = await readFile(filePath, 'utf-8');
+            const data = JSON.parse(content);
+            
+            // 解析序列化数据
+            const parsedData = serializationParser.parseSerializedData(data, filePath);
+            
+            if (parsedData) {
+                // 根据解析结果的类型处理
+                if (parsedData.__type__ === 'cc.SceneAsset') {
+                    // 保存场景文件
+                    serializationParser.saveSceneFile(parsedData, global.paths.output, bundleName);
+                } else if (parsedData.__type__ === 'cc.Prefab') {
+                    // 保存预制体文件
+                    serializationParser.savePrefabFile(parsedData, global.paths.output, bundleName);
+                } else if (parsedData.__type__ === 'cc.SpriteAtlas') {
+                    // 处理精灵图集
+                    this.spriteFrames[fileKey] = parsedData;
+                }
+            }
+        } catch (err) {
+            logger.error('处理序列化文件时出错:', err);
         }
     },
     
