@@ -718,7 +718,7 @@ class ResourceProcessor:
                 logger()['warn'](f"子包路径不存在: {subpackages_path}")
     
     def process_json_files(self):
-        """处理JSON文件"""
+        """处理JSON文件（资源结构）"""
         for curr_path in self.file_list:
             if curr_path.endswith('.json'):
                 try:
@@ -726,8 +726,14 @@ class ResourceProcessor:
                         data = json.load(f)
                     
                     key = os.path.splitext(os.path.basename(curr_path))[0]
-                    self.node_data = data
-                    self.process_data(key, data)
+                    
+                    # 检查是否为import目录下的资源结构文件
+                    if 'import' in curr_path:
+                        self.node_data = data
+                        self.process_data(key, data)
+                    # 检查是否为fire文件（场景）
+                    elif '.fire' in curr_path:
+                        self.process_scene_file(data, key, curr_path)
                 except Exception as e:
                     logger()['exception'](f"处理JSON文件 {curr_path} 时出错", e)
     
@@ -1433,6 +1439,50 @@ class ResourceProcessor:
             logger()['info'](f"处理预制体资源: {os.path.join(dir_part, name)}")
         else:
             logger()['info'](f"处理预制体资源: {name}")
+    
+    def process_scene_file(self, data: Dict[str, Any], key: str, file_path: str):
+        """
+        处理.fire场景文件
+
+        Args:
+            data (dict): 场景数据
+            key (str): 键名
+            file_path (str): 文件路径
+        """
+        # 获取场景名称
+        name = data.get('_name', '') or f"scene_{key}"
+        
+        # 添加.fire扩展名
+        if not name.endswith('.fire'):
+            name += '.fire'
+        
+        # 获取原始目录
+        relative_path = self.file_relative_paths.get(file_path, '')
+        dir_part = os.path.dirname(relative_path)
+        
+        meta_uuid = key
+
+        # 生成场景meta数据
+        meta_data = {
+            "ver": "1.2.7",
+            "uuid": meta_uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": False,
+            "readonly": False,
+            "subMetas": {}
+        }
+
+        # 写入场景文件，保持原有目录结构
+        self.file_manager.write_file(dir_part, name, data)
+        
+        # 写入.meta文件，保持原有目录结构
+        self.file_manager.write_file(dir_part, f"{name}.meta", meta_data)
+        
+        # 记录日志，包含完整路径
+        if dir_part:
+            logger()['info'](f"处理场景资源: {os.path.join(dir_part, name)}")
+        else:
+            logger()['info'](f"处理场景资源: {name}")
     
     def create_library(self, index: str, key: str) -> str:
         """
