@@ -579,18 +579,23 @@ const resourceProcessor = {
         const bundleExists = projectStructure.bundles && projectStructure.bundles[bundleName];
         const dirExists = projectStructure.directories && projectStructure.directories[bundleName];
         
-        // 构建目标路径，模仿原始工程结构
+        // 构建目标路径，基于实际项目结构
         let targetPath;
         let metaDir;
         
-        if (bundleExists || dirExists) {
-            // 如果bundle在项目结构中存在，使用原始工程结构
-            targetPath = path.join(global.paths.output, 'assets', 'res', bundleName, resourceDir, fileName);
-            metaDir = path.join('res', bundleName, resourceDir);
-        } else {
-            // 否则使用默认结构
+        if (dirExists) {
+            // 如果bundle在原始目录结构中存在，保持原始结构
+            const originalStructure = this.detectOriginalStructure(projectStructure.directories, bundleName);
+            targetPath = path.join(global.paths.output, 'assets', ...originalStructure, resourceDir, fileName);
+            metaDir = path.join(...originalStructure, resourceDir);
+        } else if (bundleExists) {
+            // 如果bundle在settings中存在但目录不存在，使用bundle结构
             targetPath = path.join(global.paths.output, 'assets', bundleName, resourceDir, fileName);
             metaDir = path.join(bundleName, resourceDir);
+        } else {
+            // 否则使用默认结构
+            targetPath = path.join(global.paths.output, 'assets', 'resources', bundleName, resourceDir, fileName);
+            metaDir = path.join('resources', bundleName, resourceDir);
         }
         
         // 添加到缓存列表
@@ -617,6 +622,29 @@ const resourceProcessor = {
         } else if (resourceDir === 'textures') {
             this.spriteFrames[fileKey] = { filePath, fileName, uuid, bundleName };
         }
+    },
+    
+    /**
+     * 检测原始目录结构
+     * @param {Object} directories 目录结构
+     * @param {string} bundleName bundle名称
+     * @returns {Array} 目录路径数组
+     */
+    detectOriginalStructure(directories, bundleName) {
+        // 检查是否直接存在bundle目录
+        if (directories[bundleName]) {
+            return [bundleName];
+        }
+        
+        // 检查是否存在于子目录中
+        for (const dirName in directories) {
+            if (typeof directories[dirName] === 'object' && directories[dirName][bundleName]) {
+                return [dirName, bundleName];
+            }
+        }
+        
+        // 默认返回
+        return [bundleName];
     },
     
     /**
