@@ -393,6 +393,9 @@ const resourceProcessor = {
         try {
             logger.info('开始处理所有资源文件...');
             
+            // 解析项目结构
+            const projectStructure = await this.parseProjectStructure();
+            
             // 统计每个bundle的资源数量
             const bundleStats = new Map();
             
@@ -404,27 +407,8 @@ const resourceProcessor = {
                 // 提取bundle名称
                 const bundleName = this.extractBundleName(filePath);
                 
-                // 根据文件类型处理
-                switch (ext) {
-                    case '.mp3':
-                    case '.wav':
-                    case '.ogg':
-                        await this.processAudioFile(filePath, fileName, fileKey, bundleName);
-                        break;
-                    case '.png':
-                    case '.jpg':
-                    case '.jpeg':
-                    case '.gif':
-                        await this.processImageFile(filePath, fileName, fileKey, bundleName);
-                        break;
-                    case '.json':
-                        // JSON文件已经在processJsonFiles中处理
-                        break;
-                    default:
-                        // 其他文件类型
-                        await this.processOtherFile(filePath, fileName, fileKey, bundleName);
-                        break;
-                }
+                // 处理资源文件，基于解析的项目结构
+                await this.processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure);
                 
                 // 更新bundle统计
                 if (bundleName) {
@@ -442,6 +426,72 @@ const resourceProcessor = {
         } catch (err) {
             logger.error('处理资源文件时出错:', err);
         }
+    },
+    
+    /**
+     * 解析项目结构
+     * @returns {Promise<Object>} 项目结构信息
+     */
+    async parseProjectStructure() {
+        const structure = {
+            bundles: {},
+            directories: {}
+        };
+        
+        try {
+            // 1. 解析settings文件中的bundle信息
+            if (global.settings && global.settings._CCSettings && global.settings._CCSettings.bundleVers) {
+                const bundleVers = global.settings._CCSettings.bundleVers;
+                for (const bundleName in bundleVers) {
+                    structure.bundles[bundleName] = {
+                        version: bundleVers[bundleName],
+                        directories: []
+                    };
+                }
+            }
+            
+            // 2. 扫描原始资源目录结构
+            const originalResPath = "C:\\Workflow\\xsh5\\assets\\res";
+            if (fs.existsSync(originalResPath)) {
+                structure.directories = this.scanDirectoryStructure(originalResPath);
+                logger.info('成功扫描原始项目目录结构');
+            }
+            
+            logger.info('项目结构解析完成');
+        } catch (err) {
+            logger.error('解析项目结构时出错:', err);
+        }
+        
+        return structure;
+    },
+    
+    /**
+     * 扫描目录结构
+     * @param {string} dirPath 目录路径
+     * @returns {Object} 目录结构
+     */
+    scanDirectoryStructure(dirPath) {
+        const structure = {};
+        
+        function scan(dir, current) {
+            try {
+                const files = fs.readdirSync(dir);
+                for (const file of files) {
+                    const fullPath = path.join(dir, file);
+                    const stat = fs.statSync(fullPath);
+                    
+                    if (stat.isDirectory()) {
+                        current[file] = {};
+                        scan(fullPath, current[file]);
+                    }
+                }
+            } catch (err) {
+                logger.error(`扫描目录 ${dir} 时出错:`, err);
+            }
+        }
+        
+        scan(dirPath, structure);
+        return structure;
     },
     
     /**
@@ -465,75 +515,108 @@ const resourceProcessor = {
     },
     
     /**
-     * 处理音频文件
-     * @param {string} filePath 文件路径
+     * 根据文件类型获取资源目录
      * @param {string} fileName 文件名
-     * @param {string} fileKey 文件键名
-     * @param {string} bundleName bundle名称
+     * @param {string} ext 文件扩展名
+     * @returns {string} 资源目录名
      */
-    async processAudioFile(filePath, fileName, fileKey, bundleName) {
-        const _mkdir = path.join(bundleName, 'Audio');
-        const uuid = fileKey;
+    getResourceDirectory(fileName, ext) {
+        ext = ext.toLowerCase();
         
-        // 添加到缓存列表
-        this.cacheReadList.push(filePath);
-        this.cacheWriteList.push(path.join(global.paths.output, 'assets', bundleName, 'Audio', fileName));
+        // 音频文件
+        if (['.mp3', '.wav', '.ogg', '.mp4', '.m4a'].includes(ext)) {
+            return 'sound';
+        }
         
-        // 生成meta文件
-        const metaData = {
-            "ver": "1.2.7",
-            "uuid": uuid,
-            "optimizationPolicy": "AUTO",
-            "asyncLoadAssets": false,
-            "readonly": false,
-            "subMetas": {}
-        };
+        // 图片文件
+        if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) {
+            return 'textures';
+        }
         
-        fileManager.writeFile(_mkdir, fileName + ".meta", metaData);
-        this.audio.push({ filePath, fileName, uuid, bundleName });
+        // 动画文件
+        if (['.anim', '.animation'].includes(ext)) {
+            return 'animation';
+        }
+        
+        // 场景文件
+        if (['.fire', '.scene'].includes(ext)) {
+            return 'scenes';
+        }
+        
+        // 预制体文件
+        if (['.prefab'].includes(ext)) {
+            return 'prefabs';
+        }
+        
+        // 脚本文件
+        if (['.js', '.ts', '.jsb'].includes(ext)) {
+            return 'script';
+        }
+        
+        // 特效文件
+        if (['.fx', '.effect'].includes(ext)) {
+            return 'effect';
+        }
+        
+        // 其他文件
+        return 'other';
     },
     
     /**
-     * 处理图片文件
+     * 处理资源文件
      * @param {string} filePath 文件路径
      * @param {string} fileName 文件名
      * @param {string} fileKey 文件键名
      * @param {string} bundleName bundle名称
+     * @param {Object} projectStructure 项目结构信息
      */
-    async processImageFile(filePath, fileName, fileKey, bundleName) {
-        const _mkdir = path.join(bundleName, 'Texture');
+    async processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure) {
+        const ext = path.extname(fileName);
+        const resourceDir = this.getResourceDirectory(fileName, ext);
         const uuid = fileKey;
         
+        // 检查项目结构中是否存在该bundle
+        const bundleExists = projectStructure.bundles && projectStructure.bundles[bundleName];
+        const dirExists = projectStructure.directories && projectStructure.directories[bundleName];
+        
+        // 构建目标路径，模仿原始工程结构
+        let targetPath;
+        let metaDir;
+        
+        if (bundleExists || dirExists) {
+            // 如果bundle在项目结构中存在，使用原始工程结构
+            targetPath = path.join(global.paths.output, 'assets', 'res', bundleName, resourceDir, fileName);
+            metaDir = path.join('res', bundleName, resourceDir);
+        } else {
+            // 否则使用默认结构
+            targetPath = path.join(global.paths.output, 'assets', bundleName, resourceDir, fileName);
+            metaDir = path.join(bundleName, resourceDir);
+        }
+        
         // 添加到缓存列表
         this.cacheReadList.push(filePath);
-        this.cacheWriteList.push(path.join(global.paths.output, 'assets', bundleName, 'Texture', fileName));
+        this.cacheWriteList.push(targetPath);
         
         // 生成meta文件
-        const metaData = {
-            "ver": "1.2.7",
-            "uuid": uuid,
-            "optimizationPolicy": "AUTO",
-            "asyncLoadAssets": false,
-            "readonly": false,
-            "subMetas": {}
-        };
+        if (resourceDir !== 'other') {
+            const metaData = {
+                "ver": "1.2.7",
+                "uuid": uuid,
+                "optimizationPolicy": "AUTO",
+                "asyncLoadAssets": false,
+                "readonly": false,
+                "subMetas": {}
+            };
+            
+            fileManager.writeFile(metaDir, fileName + ".meta", metaData);
+        }
         
-        fileManager.writeFile(_mkdir, fileName + ".meta", metaData);
-    },
-    
-    /**
-     * 处理其他文件
-     * @param {string} filePath 文件路径
-     * @param {string} fileName 文件名
-     * @param {string} fileKey 文件键名
-     * @param {string} bundleName bundle名称
-     */
-    async processOtherFile(filePath, fileName, fileKey, bundleName) {
-        const _mkdir = path.join(bundleName, 'Other');
-        
-        // 添加到缓存列表
-        this.cacheReadList.push(filePath);
-        this.cacheWriteList.push(path.join(global.paths.output, 'assets', bundleName, 'Other', fileName));
+        // 分类处理
+        if (resourceDir === 'sound') {
+            this.audio.push({ filePath, fileName, uuid, bundleName });
+        } else if (resourceDir === 'textures') {
+            this.spriteFrames[fileKey] = { filePath, fileName, uuid, bundleName };
+        }
     },
     
     /**
