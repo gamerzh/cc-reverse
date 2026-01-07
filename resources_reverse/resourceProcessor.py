@@ -478,10 +478,24 @@ class ResourceProcessor:
                     if 'assets' in self.cc_settings:
                         self.assets_index = self.cc_settings['assets']
                         logger()['info'](f"提取到 {len(self.assets_index)} 个资源索引")
+                        
+                        # 从assets构建资源映射
+                        for uuid, asset_info in self.assets_index.items():
+                            if isinstance(asset_info, list) and len(asset_info) >= 1:
+                                # asset_info[0] 是资源路径
+                                self.asset_mappings[uuid] = {'path': asset_info[0]}
                     
                     if 'packedAssets' in self.cc_settings:
                         self.packed_assets = self.cc_settings['packedAssets']
                         logger()['info'](f"提取到 {len(self.packed_assets)} 个打包资源")
+                    
+                    # 提取paths资源映射（备用）
+                    if 'paths' in self.cc_settings and not self.asset_mappings:
+                        self.asset_mappings = self.cc_settings['paths']
+                        logger()['info'](f"提取到 {len(self.asset_mappings)} 个资源路径映射")
+                    elif not self.asset_mappings:
+                        self.asset_mappings = {}
+                        logger()['debug']("settings.js中没有找到资源映射信息")
                 except json.JSONDecodeError as e:
                     logger()['exception'](f"解析JSON时出错: {e}", e)
         except Exception as e:
@@ -732,8 +746,22 @@ class ResourceProcessor:
             try:
                 # 获取文件名和扩展名
                 filename = os.path.basename(curr_path)
-                ext = os.path.splitext(filename)[1].lower()
-                basename = os.path.splitext(filename)[0]
+                
+                # 解析复杂的文件名格式 (UUID.encoded_ext.real_ext)
+                # 例如: 00435697-f44d-41c7-ad77-0277500a3811.9875d.wav
+                import re
+                uuid_match = re.match(r'^([a-f0-9\-]+)(\..*)?(\.(png|jpg|jpeg|mp3|wav|ogg|anim))$', filename)
+                if uuid_match:
+                    uuid_part = uuid_match.group(1)  # UUID部分
+                    encoded_part = uuid_match.group(2) or ''  # 编码部分，如.9875d
+                    real_ext = uuid_match.group(3)  # 真实扩展名，如.wav
+                    
+                    basename = uuid_part
+                    ext = real_ext.lower()
+                else:
+                    # 回退到简单解析
+                    ext = os.path.splitext(filename)[1].lower()
+                    basename = os.path.splitext(filename)[0]
                 
                 # 只处理需要逆向的资源类型
                 if ext in ['.png', '.jpg', '.jpeg', '.mp3', '.wav', '.ogg', '.anim']:
@@ -745,6 +773,7 @@ class ResourceProcessor:
                     original_dir = os.path.dirname(original_path)
                     
                     # 如果有资源映射信息，尝试获取原始资源路径
+                    resource_name = filename  # 默认使用UUID文件名
                     if self.asset_mappings:
                         # 尝试根据文件名（不含扩展名）查找资源映射
                         asset_info = self.asset_mappings.get(basename, {})
@@ -754,7 +783,16 @@ class ResourceProcessor:
                             if asset_path:
                                 original_path = asset_path
                                 original_dir = os.path.dirname(asset_path)
-                                logger()['debug'](f"根据bundle配置文件获取到资源原始路径: {original_path}")
+                                resource_name = os.path.basename(asset_path)  # 使用原始文件名
+                                logger()['debug'](f"根据资源映射获取到原始路径: {original_path}")
+                        elif isinstance(asset_info, list) and len(asset_info) > 0:
+                            # 兼容旧格式
+                            asset_path = asset_info[0]
+                            if asset_path:
+                                original_path = asset_path
+                                original_dir = os.path.dirname(asset_path)
+                                resource_name = os.path.basename(asset_path)
+                                logger()['debug'](f"根据资源映射获取到原始路径: {original_path}")
                     
                     # 生成唯一UUID
                     meta_uuid = UuidUtils.generate_uuid()
@@ -770,17 +808,17 @@ class ResourceProcessor:
                     }
                     
                     # 写入.meta文件，使用原始目录结构
-                    self.file_manager.write_file(original_dir, f"{filename}.meta", meta_data)
+                    self.file_manager.write_file(original_dir, f"{resource_name}.meta", meta_data)
                     
                     # 根据文件类型确定资源类型并解析资源
                     if ext in ['.png', '.jpg', '.jpeg']:
-                        self.process_texture_resource(curr_path, original_dir, filename, meta_uuid)
+                        self.process_texture_resource(curr_path, original_dir, resource_name, meta_uuid)
                     elif ext in ['.mp3', '.wav', '.ogg']:
-                        self.process_audio_resource(curr_path, original_dir, filename, meta_uuid)
+                        self.process_audio_resource(curr_path, original_dir, resource_name, meta_uuid)
                     elif ext == '.anim':
-                        self.process_animation_resource(curr_path, original_dir, filename, meta_uuid)
+                        self.process_animation_resource(curr_path, original_dir, resource_name, meta_uuid)
                     else:
-                        self.process_other_resource(curr_path, original_dir, filename, meta_uuid)
+                        self.process_other_resource(curr_path, original_dir, resource_name, meta_uuid)
                 else:
                     # 跳过不需要的文件类型（如编译后的js文件）
                     logger()['debug'](f"跳过不需要的文件类型: {curr_path}")
@@ -991,6 +1029,49 @@ class ResourceProcessor:
                 original_dir = os.path.dirname(relative_path)
         
         meta_uuid = key
+
+        # 尝试提取实际的音频数据
+        audio_data = None
+        
+        # 检查是否有base64编码的音频数据
+        if 'base64' in data:
+            import base64
+            try:
+                base64_data = data['base64']
+                if base64_data.startswith('data:audio/'):
+                    # 移除data:audio/mp3;base64,前缀
+                    base64_data = base64_data.split(',')[1]
+                audio_data = base64.b64decode(base64_data)
+                logger()['info'](f"从base64数据解码音频: {name}")
+            except Exception as e:
+                logger()['exception'](f"解码base64音频数据失败: {name}", e)
+        
+        # 如果没有base64数据，尝试从对应的二进制文件加载
+        if audio_data is None:
+            # 查找对应的二进制资源文件
+            binary_file_path = None
+            for curr_path in self.file_list:
+                filename = os.path.basename(curr_path)
+                if filename.startswith(key) and not filename.endswith('.json'):
+                    binary_file_path = curr_path
+                    break
+            
+            if binary_file_path:
+                try:
+                    with open(binary_file_path, 'rb') as f:
+                        audio_data = f.read()
+                    logger()['info'](f"从二进制文件加载音频数据: {name}")
+                except Exception as e:
+                    logger()['exception'](f"读取音频二进制文件失败: {binary_file_path}", e)
+        
+        # 如果获取到音频数据，保存为音频文件
+        if audio_data:
+            self.file_manager.write_file(original_dir, name, audio_data)
+            logger()['info'](f"保存音频文件: {os.path.join(original_dir, name)}")
+        else:
+            # 如果没有音频数据，只保存JSON元数据
+            self.file_manager.write_file(original_dir, f"{name}.json", data)
+            logger()['warn'](f"未找到音频数据，只保存元数据: {name}")
 
         meta_data = {
             "ver": "1.2.7",
@@ -1227,7 +1308,12 @@ class ResourceProcessor:
         # 如果有原生文件路径，使用其扩展名
         if _native:
             ext = os.path.splitext(_native)[1]
-            name = name + ext
+            if not name.endswith(ext):
+                name = name + ext
+        else:
+            # 默认使用.png扩展名
+            if not name.endswith(('.png', '.jpg', '.jpeg')):
+                name = name + '.png'
         
         # 查找对应的JSON文件，获取原有路径
         json_file_path = next((path for path in self.file_list if path.endswith(f'{key}.json')), None)
@@ -1239,6 +1325,49 @@ class ResourceProcessor:
         
         meta_uuid = key
 
+        # 尝试提取实际的图片数据
+        image_data = None
+        
+        # 检查是否有base64编码的图片数据
+        if 'base64' in data:
+            import base64
+            try:
+                base64_data = data['base64']
+                if base64_data.startswith('data:image/'):
+                    # 移除data:image/png;base64,前缀
+                    base64_data = base64_data.split(',')[1]
+                image_data = base64.b64decode(base64_data)
+                logger()['info'](f"从base64数据解码纹理: {name}")
+            except Exception as e:
+                logger()['exception'](f"解码base64纹理数据失败: {name}", e)
+        
+        # 如果没有base64数据，尝试从对应的二进制文件加载
+        if image_data is None:
+            # 查找对应的二进制资源文件
+            binary_file_path = None
+            for curr_path in self.file_list:
+                filename = os.path.basename(curr_path)
+                if filename.startswith(key) and not filename.endswith('.json'):
+                    binary_file_path = curr_path
+                    break
+            
+            if binary_file_path:
+                try:
+                    with open(binary_file_path, 'rb') as f:
+                        image_data = f.read()
+                    logger()['info'](f"从二进制文件加载纹理数据: {name}")
+                except Exception as e:
+                    logger()['exception'](f"读取纹理二进制文件失败: {binary_file_path}", e)
+        
+        # 如果获取到图片数据，保存为图片文件
+        if image_data:
+            self.file_manager.write_file(dir_part, name, image_data)
+            logger()['info'](f"保存纹理图片文件: {os.path.join(dir_part, name)}")
+        else:
+            # 如果没有图片数据，只保存JSON元数据
+            self.file_manager.write_file(dir_part, f"{name}.json", data)
+            logger()['warn'](f"未找到纹理图片数据，只保存元数据: {name}")
+
         # 生成纹理meta数据
         meta_data = {
             "ver": "1.2.7",
@@ -1248,9 +1377,6 @@ class ResourceProcessor:
             "readonly": False,
             "subMetas": {}
         }
-
-        # 写入纹理数据文件，保持原有目录结构
-        self.file_manager.write_file(dir_part, f"{name}.json", data)
         
         # 写入meta文件，保持原有目录结构
         self.file_manager.write_file(dir_part, f"{name}.meta", meta_data)
