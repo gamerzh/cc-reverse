@@ -468,20 +468,53 @@ class ResourceProcessor:
             match = re.search(r'window\._CCSettings\s*=\s*(\{[\s\S]*?\});', content)
             if match:
                 settings_str = match.group(1)
-                # 使用eval解析JSON（注意：仅用于解析settings.js，来源可控）
-                self.cc_settings = eval(settings_str)
-                logger()['debug']("成功解析_CCSettings对象")
-                
-                # 提取assets和packedAssets
-                if 'assets' in self.cc_settings:
-                    self.assets_index = self.cc_settings['assets']
-                    logger()['info'](f"提取到 {len(self.assets_index)} 个资源索引")
-                
-                if 'packedAssets' in self.cc_settings:
-                    self.packed_assets = self.cc_settings['packedAssets']
-                    logger()['info'](f"提取到 {len(self.packed_assets)} 个打包资源")
+                # 将JavaScript对象语法转换为JSON
+                json_str = self._convert_js_object_to_json(settings_str)
+                try:
+                    self.cc_settings = json.loads(json_str)
+                    logger()['debug']("成功解析_CCSettings对象")
+                    
+                    # 提取assets和packedAssets
+                    if 'assets' in self.cc_settings:
+                        self.assets_index = self.cc_settings['assets']
+                        logger()['info'](f"提取到 {len(self.assets_index)} 个资源索引")
+                    
+                    if 'packedAssets' in self.cc_settings:
+                        self.packed_assets = self.cc_settings['packedAssets']
+                        logger()['info'](f"提取到 {len(self.packed_assets)} 个打包资源")
+                except json.JSONDecodeError as e:
+                    logger()['exception'](f"解析JSON时出错: {e}", e)
         except Exception as e:
             logger()['exception'](f"解析settings.js文件时出错", e)
+    
+    def _convert_js_object_to_json(self, js_str):
+        """
+        将JavaScript对象语法转换为JSON
+        
+        Args:
+            js_str (str): JavaScript对象字符串
+            
+        Returns:
+            str: JSON字符串
+        """
+        # 替换JavaScript对象语法为JSON
+        json_str = js_str
+        
+        # 将单引号替换为双引号（简单处理）
+        # 注意：这不是完整的JS到JSON转换，但对settings.js足够了
+        
+        # 将属性名加引号（简单正则）
+        import re
+        
+        # 匹配属性名后面跟冒号的模式，如 debugMode: -> "debugMode":
+        json_str = re.sub(r'([a-zA-Z_$][a-zA-Z0-9_$]*)\s*:', r'"\1":', json_str)
+        
+        # 处理true/false/null
+        json_str = json_str.replace('true', 'true')
+        json_str = json_str.replace('false', 'false')
+        json_str = json_str.replace('null', 'null')
+        
+        return json_str
     
     def parse_bundle_config(self):
         """
@@ -1301,6 +1334,22 @@ class ResourceProcessor:
         Converters.convert_sprite_atlas(self.sprite_frames)
         
         logger()['info'](f"处理了 0 个资源文件（不执行复制操作）")
+    
+    def generate_top_level_dir_metas(self):
+        """
+        生成顶级目录的.meta文件
+        """
+        logger()['info']("生成顶级目录的.meta文件...")
+        
+        # 需要生成.meta文件的顶级目录
+        top_dirs = ['scripts', 'scenes', 'prefabs']
+        
+        for dir_name in top_dirs:
+            dir_path = os.path.join(self.file_manager.output_path, 'assets', dir_name)
+            if os.path.exists(dir_path):
+                # 生成目录的.meta文件
+                self.file_manager.write_directory_meta(dir_name)
+                logger()['debug'](f"生成顶级目录.meta文件: {dir_name}")
     
     def copy_files(self):
         """

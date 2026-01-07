@@ -304,22 +304,47 @@ class TypeScriptGenerator:
                 lines.append("")
             
             # 生命周期函数
+            methods = class_def.get('methods', [])
+            onLoad_method = next((m for m in methods if m['name'] == 'onLoad'), None)
+            start_method = next((m for m in methods if m['name'] == 'start'), None)
+            update_method = next((m for m in methods if m['name'] == 'update'), None)
+            
             lines.append("  // 生命周期函数 - 只在第一个组件实例上调用一次")
             lines.append("  protected onLoad(): void {")
-            lines.append("    // 初始化代码")
+            if onLoad_method and onLoad_method.get('body'):
+                body_code = self._convert_js_body_to_ts(onLoad_method['body'])
+                if body_code.strip():
+                    lines.append(f"    {body_code}")
+                else:
+                    lines.append("    // 初始化代码")
+            else:
+                lines.append("    // 初始化代码")
             lines.append("  }")
             lines.append("")
             
             lines.append("  // 生命周期函数 - 每次组件实例激活时调用")
             lines.append("  protected start(): void {")
-            lines.append("    // 组件开始运行时的代码")
+            if start_method and start_method.get('body'):
+                body_code = self._convert_js_body_to_ts(start_method['body'])
+                if body_code.strip():
+                    lines.append(f"    {body_code}")
+                else:
+                    lines.append("    // 组件开始运行时的代码")
+            else:
+                lines.append("    // 组件开始运行时的代码")
             lines.append("  }")
             lines.append("")
             
             lines.append("  // 每一帧更新时调用")
             lines.append("  protected update(deltaTime: number): void {")
-            lines.append("    // 每一帧更新的代码")
-            lines.append("  }")
+            if update_method and update_method.get('body'):
+                body_code = self._convert_js_body_to_ts(update_method['body'])
+                if body_code.strip():
+                    lines.append(f"    {body_code}")
+                else:
+                    lines.append("    // 每一帧更新的代码")
+            else:
+                lines.append("    // 每一帧更新的代码")
             lines.append("")
             
             # 自定义方法
@@ -328,12 +353,54 @@ class TypeScriptGenerator:
                 # 跳过生命周期函数，已经自动生成
                 if method['name'] in ['onLoad', 'start', 'update', 'onDestroy', 'onEnable', 'onDisable']:
                     continue
+                
+                method_type = method.get('type', 'method')
+                
+                if method_type == 'get':
+                    lines.append(f"  static get {method['name']}(): number {{")
+                    # 如果有方法体，尝试转换它
+                    if method.get('body'):
+                        body_code = self._convert_js_body_to_ts(method['body'])
+                        if body_code.strip():
+                            lines.append(f"    {body_code}")
+                        else:
+                            lines.append("    // TODO: recovered getter")
+                            lines.append("    return 0;")
+                    else:
+                        lines.append("    // TODO: recovered getter")
+                        lines.append("    return 0;")
+                    lines.append("  }")
+                    lines.append("")
+                elif method_type == 'set':
+                    lines.append(f"  static set {method['name']}(v: number) {{")
+                    # 如果有方法体，尝试转换它
+                    if method.get('body'):
+                        body_code = self._convert_js_body_to_ts(method['body'])
+                        if body_code.strip():
+                            lines.append(f"    {body_code}")
+                        else:
+                            lines.append("    // TODO: recovered setter")
+                    else:
+                        lines.append("    // TODO: recovered setter")
+                    lines.append("  }")
+                    lines.append("")
+                else:
+                    # 普通方法
+                    params_str = ', '.join([f"{param}: any" for param in method.get('params', [])])
+                    lines.append(f"  {method['name']}({params_str}): void {{")
                     
-                params_str = ', '.join([f"{param}: any" for param in method.get('params', [])])
-                lines.append(f"  {method['name']}({params_str}): void {{")
-                lines.append(f"    // {method['name']} 方法实现")
-                lines.append(f"  }}")
-                lines.append("")
+                    # 如果有方法体，尝试转换它
+                    if method.get('body'):
+                        body_code = self._convert_js_body_to_ts(method['body'])
+                        if body_code.strip():
+                            lines.append(f"    {body_code}")
+                        else:
+                            lines.append(f"    // {method['name']} 方法实现")
+                    else:
+                        lines.append(f"    // {method['name']} 方法实现")
+                    
+                    lines.append(f"  }}")
+                    lines.append("")
             
             lines.append(f"}}")
         elif class_def['type'] == 'es6_class':
@@ -354,6 +421,34 @@ class TypeScriptGenerator:
             lines.append(f"}}")
         
         return lines
+    
+    def _convert_js_body_to_ts(self, js_body):
+        """
+        将JavaScript方法体转换为TypeScript
+        
+        Args:
+            js_body (str): JavaScript方法体代码
+            
+        Returns:
+            str: 转换后的TypeScript代码
+        """
+        if not js_body:
+            return ""
+        
+        # 简单的转换：移除花括号，缩进代码
+        body = js_body.strip()
+        if body.startswith('{') and body.endswith('}'):
+            body = body[1:-1].strip()
+        
+        # 按行分割并缩进
+        lines = body.split('\n')
+        indented_lines = []
+        for line in lines:
+            line = line.strip()
+            if line:
+                indented_lines.append(f"    {line}")
+        
+        return '\n'.join(indented_lines)
     
     def _convert_to_cc_type(self, type_name):
         """将Cocos Creator类型转换为TypeScript类型

@@ -325,6 +325,7 @@ function extractCcClassesFromAst(ast, code) {
                     // 提取类属性
                     if (classArg.properties) {
                         classArg.properties.forEach(prop => {
+                            console.log(`处理属性: ${prop.type}, key: ${prop.key ? prop.key.name : 'unknown'}`);
                             if (prop.type === 'Property') {
                                 const key = prop.key.name || prop.key.value;
                                 if (key === 'name' && prop.value.type === 'Literal') {
@@ -337,18 +338,63 @@ function extractCcClassesFromAst(ast, code) {
                                     }
                                 } else if (key === 'properties' && prop.value.type === 'ObjectExpression') {
                                     classDef.properties = parsePropertiesFromAst(prop.value);
-                                } else if (prop.value.type === 'FunctionExpression' || prop.value.type === 'ArrowFunctionExpression') {
-                                    // 方法
-                                    const method = {
-                                        name: key,
-                                        params: [],
-                                        type: prop.value.type === 'ArrowFunctionExpression' ? 'arrow' : 'function'
-                                    };
-                                    if (prop.value.params) {
-                                        method.params = prop.value.params.map(p => p.name || 'arg');
+                                } else if (key !== 'name' && key !== 'extends' && key !== 'properties') {
+                                    // 处理方法定义（包括简化语法和函数表达式）
+                                    if (prop.value.type === 'FunctionExpression' || 
+                                        prop.value.type === 'ArrowFunctionExpression') {
+                                        // 标准函数表达式
+                                        const method = {
+                                            name: key,
+                                            params: [],
+                                            type: prop.value.type === 'ArrowFunctionExpression' ? 'arrow' : 'function',
+                                            body: null
+                                        };
+                                        if (prop.value.params) {
+                                            method.params = prop.value.params.map(p => p.name || 'arg');
+                                        }
+                                        // 提取方法体
+                                        if (prop.value.body) {
+                                            method.body = extractFunctionBody(prop.value.body, code);
+                                        }
+                                        classDef.methods.push(method);
+                                    } else if (prop.type === 'Property' && 
+                                               (prop.value.type === 'FunctionExpression' || 
+                                                prop.value.type === 'ArrowFunctionExpression')) {
+                                        // 另一种函数表达式格式
+                                        const method = {
+                                            name: key,
+                                            params: [],
+                                            type: prop.value.type === 'ArrowFunctionExpression' ? 'arrow' : 'function',
+                                            body: null
+                                        };
+                                        if (prop.value.params) {
+                                            method.params = prop.value.params.map(p => p.name || 'arg');
+                                        }
+                                        // 提取方法体
+                                        if (prop.value.body) {
+                                            method.body = extractFunctionBody(prop.value.body, code);
+                                        }
+                                        classDef.methods.push(method);
+                                    } else {
+                                        // 可能是简化方法语法或其他值，跳过
                                     }
-                                    classDef.methods.push(method);
                                 }
+                            } else if (prop.type === 'ObjectMethod') {
+                                // 处理对象方法（ES6方法定义语法）
+                                const method = {
+                                    name: prop.key.name,
+                                    params: [],
+                                    type: 'method',
+                                    body: null
+                                };
+                                if (prop.params) {
+                                    method.params = prop.params.map(p => p.name || 'arg');
+                                }
+                                // 提取方法体
+                                if (prop.body) {
+                                    method.body = extractFunctionBody(prop.body, code);
+                                }
+                                classDef.methods.push(method);
                             }
                         });
                     }
@@ -375,27 +421,31 @@ function extractCcClassesFromAst(ast, code) {
 }
 
 /**
- * 提取成员表达式的值
- * @param {Object} node - 成员表达式节点
- * @returns {string} - 成员表达式值
+ * 提取函数体
+ * @param {Object} bodyNode - 函数体AST节点
+ * @param {string} code - 原始代码
+ * @returns {string} - 函数体代码
  */
-function extractMemberExprValue(node) {
-    const parts = [];
-    let current = node;
-    while (current) {
-        if (current.property && current.property.name) {
-            parts.unshift(current.property.name);
-        }
-        if (current.object.type === 'Identifier') {
-            parts.unshift(current.object.name);
-            break;
-        } else if (current.object.type === 'MemberExpression') {
-            current = current.object;
-        } else {
-            break;
-        }
+function extractFunctionBody(bodyNode, code) {
+    if (!bodyNode) {
+        return '';
     }
-    return parts.join('.');
+
+    // Check for range property first (some AST nodes have it)
+    if (bodyNode.range) {
+        const start = bodyNode.range[0];
+        const end = bodyNode.range[1];
+        return code.substring(start, end);
+    }
+
+    // Check for start/end properties (BlockStatement and other nodes)
+    if (bodyNode.start !== undefined && bodyNode.end !== undefined) {
+        const start = bodyNode.start;
+        const end = bodyNode.end;
+        return code.substring(start, end);
+    }
+
+    return '';
 }
 
 /**
@@ -617,7 +667,7 @@ function analyzeFile(filePath, outputPath) {
                         c.object.name === 'cc' &&
                         c.property.name === 'Class'
                     ) {
-                        const classDef = parseCcClassCall(path.node);
+                        const classDef = parseCcClassCall(path.node, content);
                         if (classDef) {
                             classDefinitions.push(classDef);
                         }
@@ -742,9 +792,10 @@ function analyzeFile(filePath, outputPath) {
 /**
  * 解析cc.Class调用
  * @param {Object} node - CallExpression节点
+ * @param {string} code - 原始代码（用于提取方法体）
  * @returns {Object} - 类定义
  */
-function parseCcClassCall(node) {
+function parseCcClassCall(node, code = '') {
     if (!node.arguments || node.arguments.length === 0) {
         return null;
     }
@@ -764,48 +815,70 @@ function parseCcClassCall(node) {
     
     // 提取类属性
     classObj.properties.forEach(prop => {
-        if (prop.type !== 'ObjectProperty') {
-            return;
-        }
-        
-        // 获取属性名
-        let propKey;
-        if (prop.key.type === 'Identifier') {
-            propKey = prop.key.name;
-        } else if (prop.key.type === 'StringLiteral' || prop.key.type === 'NumericLiteral') {
-            propKey = prop.key.value;
-        } else {
-            return;
-        }
-        
-        const propValue = prop.value;
-        
-        switch (propKey) {
-            case 'name':
-                if (propValue.type === 'StringLiteral') {
-                    result.name = propValue.value;
-                } else {
-                    result.name = extractExpressionValue(propValue);
+        if (prop.type === 'ObjectProperty') {
+            // 获取属性名
+            let propKey;
+            if (prop.key.type === 'Identifier') {
+                propKey = prop.key.name;
+            } else if (prop.key.type === 'StringLiteral' || prop.key.type === 'NumericLiteral') {
+                propKey = prop.key.value;
+            } else {
+                return;
+            }
+            
+            const propValue = prop.value;
+            
+            // 检查是否是getter或setter
+            if (prop.kind === 'get' || prop.kind === 'set') {
+                const methodType = prop.kind; // 'get' 或 'set'
+                result.methods.push({
+                    name: propKey,
+                    params: methodType === 'set' ? ['v'] : [], // setter有一个参数
+                    type: methodType,
+                    body: extractFunctionBody(propValue.body, code)
+                });
+            } else {
+                // 处理普通属性
+                switch (propKey) {
+                    case 'name':
+                        if (propValue.type === 'StringLiteral') {
+                            result.name = propValue.value;
+                        } else {
+                            result.name = extractExpressionValue(propValue);
+                        }
+                        break;
+                    
+                    case 'extends':
+                        result.extends = extractExpressionValue(propValue);
+                        break;
+                    
+                    case 'properties':
+                        result.properties = parseProperties(propValue);
+                        break;
+                    
+                    default:
+                        // 检查是否是方法
+                        if (propValue.type === 'FunctionExpression' || propValue.type === 'ArrowFunctionExpression') {
+                            result.methods.push({
+                                name: propKey,
+                                params: extractFunctionParams(propValue),
+                                type: propValue.type === 'ArrowFunctionExpression' ? 'arrow' : 'function',
+                                body: extractFunctionBody(propValue.body, code)
+                            });
+                        }
                 }
-                break;
+            }
+        } else if (prop.type === 'ObjectMethod') {
+            // 处理ES6方法定义语法，包括getter和setter
+            const methodName = prop.key.name || prop.key.value;
+            const methodKind = prop.kind || 'method'; // 'get', 'set', 或 'method'
             
-            case 'extends':
-                result.extends = extractExpressionValue(propValue);
-                break;
-            
-            case 'properties':
-                result.properties = parseProperties(propValue);
-                break;
-            
-            default:
-                // 检查是否是方法
-                if (propValue.type === 'FunctionExpression' || propValue.type === 'ArrowFunctionExpression') {
-                    result.methods.push({
-                        name: propKey,
-                        params: extractFunctionParams(propValue),
-                        type: propValue.type === 'ArrowFunctionExpression' ? 'arrow' : 'function'
-                    });
-                }
+            result.methods.push({
+                name: methodName,
+                params: extractFunctionParams(prop),
+                type: methodKind,
+                body: extractFunctionBody(prop.body, code)
+            });
         }
     });
     
