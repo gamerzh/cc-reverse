@@ -393,33 +393,50 @@ const resourceProcessor = {
         try {
             logger.info('开始处理所有资源文件...');
             
+            // 统计每个bundle的资源数量
+            const bundleStats = new Map();
+            
             for (let filePath of this.fileList) {
                 const ext = path.extname(filePath).toLowerCase();
                 const fileName = path.basename(filePath);
                 const fileKey = path.basename(filePath, ext);
+                
+                // 提取bundle名称
+                const bundleName = this.extractBundleName(filePath);
                 
                 // 根据文件类型处理
                 switch (ext) {
                     case '.mp3':
                     case '.wav':
                     case '.ogg':
-                        await this.processAudioFile(filePath, fileName, fileKey);
+                        await this.processAudioFile(filePath, fileName, fileKey, bundleName);
                         break;
                     case '.png':
                     case '.jpg':
                     case '.jpeg':
                     case '.gif':
-                        await this.processImageFile(filePath, fileName, fileKey);
+                        await this.processImageFile(filePath, fileName, fileKey, bundleName);
                         break;
                     case '.json':
                         // JSON文件已经在processJsonFiles中处理
                         break;
                     default:
                         // 其他文件类型
-                        await this.processOtherFile(filePath, fileName, fileKey);
+                        await this.processOtherFile(filePath, fileName, fileKey, bundleName);
                         break;
                 }
+                
+                // 更新bundle统计
+                if (bundleName) {
+                    bundleStats.set(bundleName, (bundleStats.get(bundleName) || 0) + 1);
+                }
             }
+            
+            // 输出bundle统计信息
+            logger.info('Bundle资源统计:');
+            bundleStats.forEach((count, bundle) => {
+                logger.info(`- ${bundle}: ${count} 个资源`);
+            });
             
             logger.info('资源文件处理完成');
         } catch (err) {
@@ -428,18 +445,39 @@ const resourceProcessor = {
     },
     
     /**
+     * 从文件路径中提取bundle名称
+     * @param {string} filePath 文件路径
+     * @returns {string} bundle名称
+     */
+    extractBundleName(filePath) {
+        const assetsIndex = filePath.indexOf('assets');
+        if (assetsIndex === -1) {
+            return 'common';
+        }
+        
+        const bundlePath = filePath.substring(assetsIndex + 7); // +7 to skip 'assets/'
+        const bundleParts = bundlePath.split(path.sep);
+        if (bundleParts.length > 0 && bundleParts[0]) {
+            return bundleParts[0];
+        }
+        
+        return 'common';
+    },
+    
+    /**
      * 处理音频文件
      * @param {string} filePath 文件路径
      * @param {string} fileName 文件名
      * @param {string} fileKey 文件键名
+     * @param {string} bundleName bundle名称
      */
-    async processAudioFile(filePath, fileName, fileKey) {
-        const _mkdir = 'Audio';
+    async processAudioFile(filePath, fileName, fileKey, bundleName) {
+        const _mkdir = path.join(bundleName, 'Audio');
         const uuid = fileKey;
         
         // 添加到缓存列表
         this.cacheReadList.push(filePath);
-        this.cacheWriteList.push(path.join(global.paths.output, 'assets', _mkdir, fileName));
+        this.cacheWriteList.push(path.join(global.paths.output, 'assets', bundleName, 'Audio', fileName));
         
         // 生成meta文件
         const metaData = {
@@ -452,7 +490,7 @@ const resourceProcessor = {
         };
         
         fileManager.writeFile(_mkdir, fileName + ".meta", metaData);
-        this.audio.push({ filePath, fileName, uuid });
+        this.audio.push({ filePath, fileName, uuid, bundleName });
     },
     
     /**
@@ -460,14 +498,15 @@ const resourceProcessor = {
      * @param {string} filePath 文件路径
      * @param {string} fileName 文件名
      * @param {string} fileKey 文件键名
+     * @param {string} bundleName bundle名称
      */
-    async processImageFile(filePath, fileName, fileKey) {
-        const _mkdir = 'Texture';
+    async processImageFile(filePath, fileName, fileKey, bundleName) {
+        const _mkdir = path.join(bundleName, 'Texture');
         const uuid = fileKey;
         
         // 添加到缓存列表
         this.cacheReadList.push(filePath);
-        this.cacheWriteList.push(path.join(global.paths.output, 'assets', _mkdir, fileName));
+        this.cacheWriteList.push(path.join(global.paths.output, 'assets', bundleName, 'Texture', fileName));
         
         // 生成meta文件
         const metaData = {
@@ -487,13 +526,14 @@ const resourceProcessor = {
      * @param {string} filePath 文件路径
      * @param {string} fileName 文件名
      * @param {string} fileKey 文件键名
+     * @param {string} bundleName bundle名称
      */
-    async processOtherFile(filePath, fileName, fileKey) {
-        const _mkdir = 'Other';
+    async processOtherFile(filePath, fileName, fileKey, bundleName) {
+        const _mkdir = path.join(bundleName, 'Other');
         
         // 添加到缓存列表
         this.cacheReadList.push(filePath);
-        this.cacheWriteList.push(path.join(global.paths.output, 'assets', _mkdir, fileName));
+        this.cacheWriteList.push(path.join(global.paths.output, 'assets', bundleName, 'Other', fileName));
     },
     
     /**
