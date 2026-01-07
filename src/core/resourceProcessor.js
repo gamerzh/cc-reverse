@@ -180,10 +180,18 @@ const resourceProcessor = {
      * @param {string} key 键名
      */
     writeProcessedData(data, key) {
+        if (data === null || data === undefined) {
+            return;
+        }
+        
         if (typeof data === "object" && data["__type__"]) {
             this.processTypeData(data, key);
         } else {
             for (let i in data) {
+                if (data[i] === null || data[i] === undefined) {
+                    continue;
+                }
+                
                 const type = data[i]['__type__'];
                 if (Array.isArray(data[i])) {
                     this.writeProcessedData(data[i], key);
@@ -365,6 +373,9 @@ const resourceProcessor = {
      * @returns {Promise<void>}
      */
     async convertToOutputFiles() {
+        // 处理所有资源文件
+        await this.processAllResourceFiles();
+        
         // 复制文件
         await this.copyFiles();
         
@@ -372,6 +383,117 @@ const resourceProcessor = {
         await converters.convertSpriteAtlas(this.spriteFrames);
         
         logger.info(`处理了 ${this.cacheReadList.length} 个资源文件`);
+    },
+    
+    /**
+     * 处理所有资源文件
+     * @returns {Promise<void>}
+     */
+    async processAllResourceFiles() {
+        try {
+            logger.info('开始处理所有资源文件...');
+            
+            for (let filePath of this.fileList) {
+                const ext = path.extname(filePath).toLowerCase();
+                const fileName = path.basename(filePath);
+                const fileKey = path.basename(filePath, ext);
+                
+                // 根据文件类型处理
+                switch (ext) {
+                    case '.mp3':
+                    case '.wav':
+                    case '.ogg':
+                        await this.processAudioFile(filePath, fileName, fileKey);
+                        break;
+                    case '.png':
+                    case '.jpg':
+                    case '.jpeg':
+                    case '.gif':
+                        await this.processImageFile(filePath, fileName, fileKey);
+                        break;
+                    case '.json':
+                        // JSON文件已经在processJsonFiles中处理
+                        break;
+                    default:
+                        // 其他文件类型
+                        await this.processOtherFile(filePath, fileName, fileKey);
+                        break;
+                }
+            }
+            
+            logger.info('资源文件处理完成');
+        } catch (err) {
+            logger.error('处理资源文件时出错:', err);
+        }
+    },
+    
+    /**
+     * 处理音频文件
+     * @param {string} filePath 文件路径
+     * @param {string} fileName 文件名
+     * @param {string} fileKey 文件键名
+     */
+    async processAudioFile(filePath, fileName, fileKey) {
+        const _mkdir = 'Audio';
+        const uuid = fileKey;
+        
+        // 添加到缓存列表
+        this.cacheReadList.push(filePath);
+        this.cacheWriteList.push(path.join(global.paths.output, 'assets', _mkdir, fileName));
+        
+        // 生成meta文件
+        const metaData = {
+            "ver": "1.2.7",
+            "uuid": uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": false,
+            "readonly": false,
+            "subMetas": {}
+        };
+        
+        fileManager.writeFile(_mkdir, fileName + ".meta", metaData);
+        this.audio.push({ filePath, fileName, uuid });
+    },
+    
+    /**
+     * 处理图片文件
+     * @param {string} filePath 文件路径
+     * @param {string} fileName 文件名
+     * @param {string} fileKey 文件键名
+     */
+    async processImageFile(filePath, fileName, fileKey) {
+        const _mkdir = 'Texture';
+        const uuid = fileKey;
+        
+        // 添加到缓存列表
+        this.cacheReadList.push(filePath);
+        this.cacheWriteList.push(path.join(global.paths.output, 'assets', _mkdir, fileName));
+        
+        // 生成meta文件
+        const metaData = {
+            "ver": "1.2.7",
+            "uuid": uuid,
+            "optimizationPolicy": "AUTO",
+            "asyncLoadAssets": false,
+            "readonly": false,
+            "subMetas": {}
+        };
+        
+        fileManager.writeFile(_mkdir, fileName + ".meta", metaData);
+    },
+    
+    /**
+     * 处理其他文件
+     * @param {string} filePath 文件路径
+     * @param {string} fileName 文件名
+     * @param {string} fileKey 文件键名
+     */
+    async processOtherFile(filePath, fileName, fileKey) {
+        const _mkdir = 'Other';
+        
+        // 添加到缓存列表
+        this.cacheReadList.push(filePath);
+        this.cacheWriteList.push(path.join(global.paths.output, 'assets', _mkdir, fileName));
     },
     
     /**

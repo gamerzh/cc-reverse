@@ -30,7 +30,18 @@ const codeAnalyzer = {
     async analyze(code) {
         try {
             // 1. 解析代码为 AST
-            const ast = parser.parse(code);
+            const ast = parser.parse(code, {
+                sourceType: 'module',
+                allowImportExportEverywhere: true,
+                allowReturnOutsideFunction: true,
+                plugins: [
+                    'jsx',
+                    'typescript',
+                    'decorators-legacy',
+                    'classProperties',
+                    'objectRestSpread'
+                ]
+            });
             const values = [];
             
             // 2. 定义访问者函数查找值
@@ -188,8 +199,31 @@ const codeAnalyzer = {
                                 // 处理模块参数 - 这里直接调用辅助函数
                                 processModuleParams(node);
                                 
-                                // 处理节点元素 - 这里直接调用辅助函数
-                                processNodeElements(node, value);
+                                // 处理节点元素 - 这里直接调用辅助函数（注意：这里不能使用 await，因为 Babel traverse 不支持异步）
+                                // 改为同步处理或使用其他方式
+                                try {
+                                    // 同步处理节点元素
+                                    for (let i of node.value.elements[0].body.body) {
+                                        // 生成元数据文件
+                                        generateMetaFiles(i);
+                                        
+                                        // 处理导入路径
+                                        processImportPaths(i);
+                                    }
+                                    
+                                    // 同步保存 AST 到文件
+                                    const str = JSON.stringify(node.value.elements[0].body);
+                                    const astPath = require('path').join(global.paths.ast, `${value}.json`);
+                                    
+                                    // 写入文件
+                                    fs.writeFileSync(astPath, str, { flag: 'w+' });
+                                    
+                                    if (global.verbose) {
+                                        logger.debug(`保存 AST 到文件: ${astPath}`);
+                                    }
+                                } catch (err) {
+                                    logger.error(`处理节点元素时出错:`, err);
+                                }
                             }
                         }
                     }
