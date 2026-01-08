@@ -177,7 +177,11 @@ const serializationParser = {
 
             // 若无 exportPath 且可获取根节点名称，则用根节点名作为可读名
             if ((!exportName || exportName.length === 0) && prefabData._root && prefabData._root._name) {
-                prefabData._name = prefabData._root._name;
+                const rootName = String(prefabData._root._name || '').trim();
+                // 避免大量 prefab 根节点都叫 Node 导致文件名冲突
+                if (rootName && rootName !== 'Node') {
+                    prefabData._name = rootName;
+                }
             }
 
             return prefabData;
@@ -411,11 +415,30 @@ const serializationParser = {
      */
     savePrefabFile(prefabData, outputPath, bundleName) {
         try {
-            const prefabName = this.sanitizeFileName(prefabData._name || 'prefab');
-            const prefabPath = path.join(outputPath, 'assets', bundleName, 'prefabs', `${prefabName}.prefab`);
+            const baseName = this.sanitizeFileName(prefabData._name || 'prefab');
+            const dir = path.join(outputPath, 'assets', bundleName, 'prefabs');
+
+            // 若名称过于通用，使用源文件名作为更稳定的 fallback，避免覆盖
+            const sourceKey = this.sanitizeFileName(path.basename(prefabData._file || '', path.extname(prefabData._file || '')));
+            let prefabName = baseName;
+            if (!prefabName || prefabName === 'asset' || prefabName === 'Node') {
+                prefabName = sourceKey || prefabName || 'prefab';
+            }
+
+            // 如果目标文件已存在，追加后缀确保唯一
+            let finalName = prefabName;
+            const suffixBase = (sourceKey || 'prefab').replace(/\./g, '_');
+            let counter = 1;
+            while (fs.existsSync(path.join(dir, `${finalName}.prefab`))) {
+                const short = suffixBase.slice(0, 8) || String(counter);
+                finalName = `${prefabName}_${short}_${counter}`;
+                counter += 1;
+            }
+
+            const prefabPath = path.join(outputPath, 'assets', bundleName, 'prefabs', `${finalName}.prefab`);
             
-            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${prefabName}.prefab`, prefabData);
-            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${prefabName}.prefab.meta`, this.generateMetaFile(prefabData));
+            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab`, prefabData);
+            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab.meta`, this.generateMetaFile(prefabData));
             
             logger.info(`保存预制体文件: ${prefabPath}`);
         } catch (err) {

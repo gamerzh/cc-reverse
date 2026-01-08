@@ -662,6 +662,8 @@ const resourceProcessor = {
                     serializationParser.saveSceneFile(parsedData, global.paths.output, bundleName);
                 } else if (parsedData.__type__ === 'cc.Prefab') {
                     // 保存预制体文件
+                    // 记录源文件名用于避免重名覆盖
+                    parsedData._file = filePath;
                     serializationParser.savePrefabFile(parsedData, global.paths.output, bundleName);
                 } else if (parsedData.__type__ === 'cc.SpriteAtlas') {
                     // 处理精灵图集，记录必要上下文，供转换器输出
