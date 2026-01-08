@@ -36,8 +36,12 @@ const serializationParser = {
 
             logger.debug(`解析序列化数据 - 版本: ${version}, 资源数量: ${objects ? objects.length : 0}`);
 
-            // 从 exportPath 推导资源原名
-            const exportName = this.deriveNameFromExportPath(exportPath);
+            // 从 exportPath 推导资源原名；若缺失则从数据深处尝试提取
+            let exportName = this.deriveNameFromExportPath(exportPath);
+            if (!exportName) {
+                exportName = this.deriveNameFromDataDeep(data) || '';
+            }
+            const namesArr = Array.isArray(names) ? names : [];
 
             // 根据类型处理不同的资源
             const includesTypeDeep = (node, needle) => {
@@ -56,7 +60,7 @@ const serializationParser = {
                 );
                 
                 if (isPrefabFile || includesTypeDeep(data, 'cc.Prefab')) {
-                    return this.parsePrefabData(data, filePath, exportName);
+                    return this.parsePrefabData(data, filePath, exportName, namesArr);
                 }
                 
                 // 检查是否是场景文件
@@ -136,14 +140,14 @@ const serializationParser = {
      * @param {string} filePath 文件路径
      * @returns {Object} 预制体对象
      */
-    parsePrefabData(data, filePath, exportName) {
+    parsePrefabData(data, filePath, exportName, namesArr) {
         try {
             logger.info('解析预制体数据:', filePath);
             
             const objects = data[5];
             const prefabData = {
                 __type__: 'cc.Prefab',
-                _name: exportName || path.basename(filePath, path.extname(filePath)),
+                _name: exportName || this.deriveNameFromNames(Array.isArray(namesArr) ? namesArr : []) || path.basename(filePath, path.extname(filePath)),
                 _root: null,
                 _nodes: [],
                 _bindings: [],
@@ -164,6 +168,11 @@ const serializationParser = {
                         }
                     }
                 }
+            }
+
+            // 若无 exportPath 且可获取根节点名称，则用根节点名作为可读名
+            if ((!exportName || exportName.length === 0) && prefabData._root && prefabData._root._name) {
+                prefabData._name = prefabData._root._name;
             }
 
             return prefabData;
@@ -377,7 +386,7 @@ const serializationParser = {
      */
     saveSceneFile(sceneData, outputPath, bundleName) {
         try {
-            const sceneName = sceneData._name || 'scene';
+            const sceneName = this.sanitizeFileName(sceneData._name || 'scene');
             const scenePath = path.join(outputPath, 'assets', bundleName, 'scenes', `${sceneName}.fire`);
             
             fileManager.writeFile(path.join(bundleName, 'scenes'), `${sceneName}.fire`, sceneData);
@@ -397,7 +406,7 @@ const serializationParser = {
      */
     savePrefabFile(prefabData, outputPath, bundleName) {
         try {
-            const prefabName = prefabData._name || 'prefab';
+            const prefabName = this.sanitizeFileName(prefabData._name || 'prefab');
             const prefabPath = path.join(outputPath, 'assets', bundleName, 'prefabs', `${prefabName}.prefab`);
             
             fileManager.writeFile(path.join(bundleName, 'prefabs'), `${prefabName}.prefab`, prefabData);
@@ -440,6 +449,74 @@ const serializationParser = {
         } catch (e) {
             return '';
         }
+    },
+
+    /**
+     * 深度遍历序列化数据，寻找包含 .prefab/.fire 或 /prefabs/、/scenes/ 的字符串，提取可读名
+     */
+    deriveNameFromDataDeep(node) {
+        try {
+            const stack = [node];
+            while (stack.length) {
+                const cur = stack.pop();
+                if (typeof cur === 'string') {
+                    const s = cur;
+                    // 优先匹配 db://assets 路径
+                    let m = s.match(/db:\/\/assets\/[A-Za-z0-9_\-\/.]+\.(prefab|fire)/i);
+                    if (m) {
+                        const base = path.basename(m[0]);
+                        return base.replace(/\.(prefab|fire)$/i, '');
+                    }
+                    // 次选匹配 /prefabs/ or /scenes/ 片段
+                    m = s.match(/\/(prefabs|scenes)\/[A-Za-z0-9_\-\.]+/i);
+                    if (m) {
+                        const base = path.basename(m[0]);
+                        return base.replace(/\.(prefab|fire)$/i, '');
+                    }
+                    // 直接包含 .prefab/.fire
+                    m = s.match(/[A-Za-z0-9_\-\.]+\.(prefab|fire)/i);
+                    if (m) {
+                        const base = path.basename(m[0]);
+                        const name = base.replace(/\.(prefab|fire)$/i, '');
+                        // 排除类型名如 cc.Prefab 被误判
+                        if (name.toLowerCase() === 'cc') return '';
+                        return name;
+                    }
+                } else if (Array.isArray(cur)) {
+                    for (let i = 0; i < cur.length; i++) stack.push(cur[i]);
+                } else if (cur && typeof cur === 'object') {
+                    for (const v of Object.values(cur)) stack.push(v);
+                }
+            }
+            return '';
+        } catch {
+            return '';
+        }
+    },
+
+    /**
+     * 从 names 数组粗略推导人类可读名称
+     */
+    deriveNameFromNames(namesArr) {
+        try {
+            if (!Array.isArray(namesArr)) return '';
+            const cand = namesArr.find(s => typeof s === 'string' && /[A-Za-z\u4e00-\u9fa5]/.test(s));
+            if (!cand) return '';
+            return cand.replace(/\.(prefab|fire|json|asset)$/i, '');
+        } catch {
+            return '';
+        }
+    },
+
+    /**
+     * 使文件名在各平台下安全
+     */
+    sanitizeFileName(name) {
+        if (!name || typeof name !== 'string') return 'asset';
+        let safe = name.trim().replace(/[<>:\"\/\\|?*]/g, '_');
+        safe = safe.replace(/[\s\.]+$/g, '');
+        if (safe.length === 0) safe = 'asset';
+        return safe;
     }
 };
 

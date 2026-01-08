@@ -4,11 +4,20 @@ Cocos Creator 逆向工程工具，用于从构建后的 Web 项目中提取源�
 
 ## 功能特性
 
-- 支持 Cocos Creator 2.3.x 和 2.4.x 版本
-- 提取和还原 TypeScript 源代码
-- 处理和转换资源文件
-- 生成 Cocos Creator 项目配置文件
-- 支持子包处理
+
+## 输出内容
+
+- 反序列化的资源（场景、预制体、图集等）
+- 生成的 `.meta` 文件
+- 基于设置的项目结构（bundles、resources 等）
+
+### 关于资源命名（Prefab/Scene）
+- Prefab/Scene 的文件名优先取自导出路径 `exportPath`，例如 `db://assets/prefabs/MyPrefab.prefab` 将输出为 `MyPrefab.prefab`。
+- 当 `exportPath` 缺失时：
+	- 次优先从序列化数据的 `names[]` 中推导一个可读名称；
+	- 仍不可得时，尝试使用根节点名称作为文件名；
+	- 最后才回退为源文件名的基名。
+- 输出前会做跨平台安全化处理（替换非法字符、去除末尾空格/点），确保在 Windows 下也能成功写入。
 
 ## 安装
 

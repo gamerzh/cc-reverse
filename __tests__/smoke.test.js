@@ -199,4 +199,72 @@ describe('cc-reverse smoke', () => {
     expect(await fileExists(plistPath)).toBe(true);
     expect(await fileExists(metaPath)).toBe(true);
   });
+
+  test('prefab name falls back to names[] when exportPath missing', async () => {
+    const src = await createTempDir('cc-rev-src-');
+    const out = await createTempDir('cc-rev-out-');
+
+    await write(path.join(src, 'src', 'settings.js'), minimalSettingsContent());
+    await write(path.join(src, 'src', 'project.js'), 'console.log("project");');
+
+    // Import prefab JSON without exportPath; provide names[] with a readable name
+    await write(path.join(src, 'res', 'import', 'prefabs', 'abcd1234.json'), JSON.stringify([
+      1,                // version
+      [],               // uuids
+      ['ReadablePrefab.prefab'], // names (fallback)
+      ['cc.Prefab'],    // types
+      [],               // typeIndices
+      [],               // objects
+      [],               // assets
+      [],               // depends
+      '',               // exportPath missing/empty
+      false             // isScene
+    ]));
+
+    const ok = await reverseProject({
+      sourcePath: src,
+      outputPath: out,
+      verbose: true,
+      versionHint: '2.3.x',
+      bundleConcurrency: 1
+    });
+
+    expect(ok).toBeTruthy();
+    const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'ReadablePrefab.prefab');
+    expect(await fileExists(prefabPath)).toBe(true);
+  });
+
+  test('prefab name can be derived deep from data when exportPath and names[] are missing', async () => {
+    const src = await createTempDir('cc-rev-src-');
+    const out = await createTempDir('cc-rev-out-');
+
+    await write(path.join(src, 'src', 'settings.js'), minimalSettingsContent());
+    await write(path.join(src, 'src', 'project.js'), 'console.log("project");');
+
+    // No exportPath, empty names; embed a path-like string somewhere deep (in assets array)
+    await write(path.join(src, 'res', 'import', 'prefabs', 'no_names.json'), JSON.stringify([
+      1,                // version
+      [],               // uuids
+      [],               // names
+      ['cc.Prefab'],    // types
+      [],               // typeIndices
+      [],               // objects
+      ["db://assets/prefabs/DeepDerived.prefab"], // assets carries a hint
+      [],               // depends
+      '',               // exportPath missing
+      false             // isScene
+    ]));
+
+    const ok = await reverseProject({
+      sourcePath: src,
+      outputPath: out,
+      verbose: true,
+      versionHint: '2.3.x',
+      bundleConcurrency: 1
+    });
+
+    expect(ok).toBeTruthy();
+    const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'DeepDerived.prefab');
+    expect(await fileExists(prefabPath)).toBe(true);
+  });
 });
