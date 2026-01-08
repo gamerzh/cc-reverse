@@ -38,6 +38,19 @@ function minimalSettingsContent() {
   ].join('\n');
 }
 
+// Settings with rawAssets for name derivation
+function settingsWithRawAssets(rawAssetsSnippet) {
+  return [
+    'window._CCSettings = {',
+    '  bundleVers: {},',
+    '  uuids: {},',
+    '  subpackages: {},',
+    '  launchScene: "db://assets/Scene/Main.fire",',
+    `  rawAssets: ${rawAssetsSnippet}`,
+    '};'
+  ].join('\n');
+}
+
 describe('cc-reverse smoke', () => {
   test('runs reverseProject on minimal 2.3.x layout', async () => {
     const src = await createTempDir('cc-rev-src-');
@@ -266,5 +279,111 @@ describe('cc-reverse smoke', () => {
     expect(ok).toBeTruthy();
     const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'DeepDerived.prefab');
     expect(await fileExists(prefabPath)).toBe(true);
+  });
+
+  test('prefab name derived from rawAssets when exportPath/names[] missing', async () => {
+    const src = await createTempDir('cc-rev-src-');
+    const out = await createTempDir('cc-rev-out-');
+
+    // Settings include rawAssets.assets mapping uuid to path
+    const settings = settingsWithRawAssets(JSON.stringify({
+      assets: {
+        "uuid-raw-1": ["prefabs/FromRawAssets", "cc.Prefab", 1]
+      }
+    }));
+    await write(path.join(src, 'src', 'settings.js'), settings);
+    await write(path.join(src, 'src', 'project.js'), 'console.log("project");');
+
+    // Serialized data with uuids referencing rawAssets key, but no exportPath/names
+    await write(path.join(src, 'res', 'import', 'prefabs', 'from_raw.json'), JSON.stringify([
+      1,                // version
+      ['uuid-raw-1'],   // uuids
+      [],               // names
+      ['cc.Prefab'],    // types
+      [],               // typeIndices
+      [],               // objects
+      [],               // assets
+      [],               // depends
+      '',               // exportPath missing
+      false             // isScene
+    ]));
+
+    const ok = await reverseProject({
+      sourcePath: src,
+      outputPath: out,
+      verbose: true,
+      versionHint: '2.3.x',
+      bundleConcurrency: 1
+    });
+
+    expect(ok).toBeTruthy();
+    const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'FromRawAssets.prefab');
+    expect(await fileExists(prefabPath)).toBe(true);
+  });
+
+  test('prefab name derived from originalStructure when uuid matches meta', async () => {
+    const src = await createTempDir('cc-rev-src-');
+    const out = await createTempDir('cc-rev-out-');
+    const orig = await createTempDir('cc-rev-orig-');
+
+    const uuid = 'uuid-orig-1';
+    const origRoot = path.join(orig, 'assets', 'res');
+    const origPrefabDir = path.join(origRoot, 'fhpoker', 'prefabs');
+    await write(path.join(origPrefabDir, 'Pretty.prefab'), 'prefab');
+    await write(path.join(origPrefabDir, 'Pretty.prefab.meta'), JSON.stringify({ uuid }));
+
+    await write(path.join(src, 'src', 'settings.js'), minimalSettingsContent());
+    await write(path.join(src, 'src', 'project.js'), 'console.log("project");');
+
+    // Import prefab JSON without exportPath/names/rawAssets; uuids matches original meta
+    await write(path.join(src, 'res', 'import', 'prefabs', 'hashed.json'), JSON.stringify([
+      1,                // version
+      [uuid],           // uuids
+      [],               // names
+      ['cc.Prefab'],    // types
+      [],               // typeIndices
+      [],               // objects
+      [],               // assets
+      [],               // depends
+      '',               // exportPath missing
+      false             // isScene
+    ]));
+
+    const ok = await reverseProject({
+      sourcePath: src,
+      outputPath: out,
+      verbose: true,
+      originalStructure: origRoot,
+      versionHint: '2.3.x',
+      bundleConcurrency: 1
+    });
+
+    expect(ok).toBeTruthy();
+    const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'Pretty.prefab');
+    expect(await fileExists(prefabPath)).toBe(true);
+  });
+
+  test('non-array serialized JSON is skipped without throwing', async () => {
+    const src = await createTempDir('cc-rev-src-');
+    const out = await createTempDir('cc-rev-out-');
+
+    await write(path.join(src, 'src', 'settings.js'), minimalSettingsContent());
+    await write(path.join(src, 'src', 'project.js'), 'console.log("project");');
+
+    // Malformed: root is object, not array
+    await write(path.join(src, 'res', 'import', 'prefabs', 'bad.json'), JSON.stringify({ foo: 'bar' }));
+
+    const ok = await reverseProject({
+      sourcePath: src,
+      outputPath: out,
+      verbose: true,
+      versionHint: '2.3.x',
+      bundleConcurrency: 1
+    });
+
+    expect(ok).toBeTruthy();
+    // Should not create a prefab
+    const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'bad.prefab');
+    expect(await fileExists(prefabPath)).toBe(false);
   });
 });

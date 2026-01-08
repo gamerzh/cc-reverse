@@ -653,7 +653,7 @@ const resourceProcessor = {
             const data = JSON.parse(content);
             
             // 解析序列化数据
-            const parsedData = serializationParser.parseSerializedData(data, filePath);
+            const parsedData = serializationParser.parseSerializedData(data, filePath, bundleName);
             
                 if (parsedData) {
                 // 根据解析结果的类型处理

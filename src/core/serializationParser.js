@@ -2,6 +2,7 @@
  * @Date: 2026-01-07 10:06:12
  * @Description: Cocos Creator 序列化数据解析器
  */
+const fs = require('fs');
 const path = require('path');
 const { logger } = require('../utils/logger');
 const { fileManager } = require('../utils/fileManager');
@@ -10,16 +11,18 @@ const { fileManager } = require('../utils/fileManager');
  * 序列化数据解析器
  */
 const serializationParser = {
+    originalPrefabCache: null,
+    originalPrefabCacheRoot: '',
     /**
      * 解析序列化的资源数据
      * @param {Array} data 序列化数据
      * @param {string} filePath 文件路径
      * @returns {Object} 解析后的资源对象
      */
-    parseSerializedData(data, filePath) {
+    parseSerializedData(data, filePath, bundleName) {
         try {
             if (!Array.isArray(data)) {
-                logger.error('序列化数据格式错误，不是数组:', filePath);
+                logger.warn('序列化数据格式错误，不是数组，已跳过:', filePath);
                 return null;
             }
 
@@ -36,10 +39,12 @@ const serializationParser = {
 
             logger.debug(`解析序列化数据 - 版本: ${version}, 资源数量: ${objects ? objects.length : 0}`);
 
-            // 从 exportPath 推导资源原名；若缺失则从数据深处尝试提取
+            // 从多种来源推导资源原名：exportPath -> rawAssets -> 原始目录 -> names[] -> data 深扫 -> 根节点 -> 文件名
             let exportName = this.deriveNameFromExportPath(exportPath);
+            const rawAssetName = this.deriveNameFromRawAssets(Array.isArray(uuids) ? uuids : []);
+            const originalStructName = this.deriveNameFromOriginalStructure(filePath, bundleName, Array.isArray(uuids) ? uuids : []);
             if (!exportName) {
-                exportName = this.deriveNameFromDataDeep(data) || '';
+                exportName = rawAssetName || originalStructName || this.deriveNameFromDataDeep(data) || '';
             }
             const namesArr = Array.isArray(names) ? names : [];
 
@@ -60,7 +65,7 @@ const serializationParser = {
                 );
                 
                 if (isPrefabFile || includesTypeDeep(data, 'cc.Prefab')) {
-                    return this.parsePrefabData(data, filePath, exportName, namesArr);
+                    return this.parsePrefabData(data, filePath, exportName, namesArr, rawAssetName, originalStructName);
                 }
                 
                 // 检查是否是场景文件
@@ -140,14 +145,14 @@ const serializationParser = {
      * @param {string} filePath 文件路径
      * @returns {Object} 预制体对象
      */
-    parsePrefabData(data, filePath, exportName, namesArr) {
+    parsePrefabData(data, filePath, exportName, namesArr, rawAssetName, originalStructName) {
         try {
             logger.info('解析预制体数据:', filePath);
             
             const objects = data[5];
             const prefabData = {
                 __type__: 'cc.Prefab',
-                _name: exportName || this.deriveNameFromNames(Array.isArray(namesArr) ? namesArr : []) || path.basename(filePath, path.extname(filePath)),
+                _name: exportName || rawAssetName || originalStructName || this.deriveNameFromNames(Array.isArray(namesArr) ? namesArr : []) || this.deriveNameFromDataDeep(data) || path.basename(filePath, path.extname(filePath)),
                 _root: null,
                 _nodes: [],
                 _bindings: [],
@@ -488,6 +493,120 @@ const serializationParser = {
                     for (const v of Object.values(cur)) stack.push(v);
                 }
             }
+            return '';
+        } catch {
+            return '';
+        }
+    },
+
+    /**
+     * 从 _CCSettings.rawAssets 中根据 uuid 推导名称
+     */
+    deriveNameFromRawAssets(uuids) {
+        try {
+            if (!Array.isArray(uuids) || uuids.length === 0) return '';
+            const settings = global.settings && (global.settings._CCSettings || global.settings.CCSettings);
+            if (!settings || !settings.rawAssets || !settings.rawAssets.assets) return '';
+            const assets = settings.rawAssets.assets;
+            for (const id of uuids) {
+                const entry = assets[id];
+                if (entry && entry[0]) {
+                    const url = Array.isArray(entry) ? entry[0] : entry.url || '';
+                    if (typeof url === 'string' && url.length) {
+                        const base = path.basename(url);
+                        return base.replace(/\.(prefab|fire|json|asset)$/i, '');
+                    }
+                }
+            }
+            return '';
+        } catch {
+            return '';
+        }
+    },
+
+    /**
+     * 预扫描原始目录结构，缓存 uuid -> 名称 映射（prefabs）
+     */
+    buildOriginalPrefabCache() {
+        try {
+            const origRoot = global.paths && global.paths.originalStructureRoot;
+            if (!origRoot || !fs.existsSync(origRoot)) {
+                this.originalPrefabCache = { byUuid: {}, byBase: {} };
+                this.originalPrefabCacheRoot = origRoot || '';
+                return;
+            }
+
+            const byUuid = {};
+            const byBase = {};
+            const walk = dir => {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const ent of entries) {
+                    const full = path.join(dir, ent.name);
+                    if (ent.isDirectory()) {
+                        walk(full);
+                        continue;
+                    }
+
+                    if (ent.name.endsWith('.prefab.meta')) {
+                        const base = path.basename(ent.name, '.prefab.meta');
+                        const rel = path.relative(origRoot, full);
+                        const parts = rel.split(path.sep);
+                        const bundle = parts.length > 0 ? parts[0] : '';
+                        try {
+                            const meta = JSON.parse(fs.readFileSync(full, 'utf8'));
+                            if (meta && typeof meta.uuid === 'string') {
+                                byUuid[meta.uuid] = { name: base, bundle };
+                            }
+                        } catch {
+                            // ignore malformed meta
+                        }
+                        byBase[base] = { name: base, bundle };
+                    } else if (ent.name.endsWith('.prefab')) {
+                        const base = path.basename(ent.name, '.prefab');
+                        const rel = path.relative(origRoot, full);
+                        const parts = rel.split(path.sep);
+                        const bundle = parts.length > 0 ? parts[0] : '';
+                        byBase[base] = { name: base, bundle };
+                    }
+                }
+            };
+
+            walk(origRoot);
+            this.originalPrefabCache = { byUuid, byBase };
+            this.originalPrefabCacheRoot = origRoot;
+        } catch {
+            this.originalPrefabCache = { byUuid: {}, byBase: {} };
+            this.originalPrefabCacheRoot = '';
+        }
+    },
+
+    /**
+     * 从原始目录结构（originalStructureRoot）推导名称，基于 uuid / 文件名
+     */
+    deriveNameFromOriginalStructure(filePath, bundleName, uuids) {
+        try {
+            const origRoot = global.paths && global.paths.originalStructureRoot;
+            if (!origRoot || !Array.isArray(uuids) || uuids.length === 0) return '';
+            if (!this.originalPrefabCache || this.originalPrefabCacheRoot !== origRoot) {
+                this.buildOriginalPrefabCache();
+            }
+            const cache = this.originalPrefabCache || { byUuid: {}, byBase: {} };
+
+            const bundleMatch = (hitBundle) => (!hitBundle || !bundleName || hitBundle === bundleName || bundleName === 'common');
+
+            for (const id of uuids) {
+                const hit = cache.byUuid[id];
+                if (hit && bundleMatch(hit.bundle)) {
+                    return hit.name;
+                }
+            }
+
+            const baseNoExt = path.basename(filePath, path.extname(filePath));
+            const hitBase = cache.byBase[baseNoExt];
+            if (hitBase && bundleMatch(hitBase.bundle)) {
+                return hitBase.name;
+            }
+
             return '';
         } catch {
             return '';
