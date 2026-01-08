@@ -38,7 +38,7 @@ const serializationParser = {
 
             // 根据类型处理不同的资源
             if (types) {
-                // 检查是否是场景文件
+                // 首先检查是否是场景文件
                 const isSceneFile = data[9] === true || types.some(type => type.includes('cc.SceneAsset'));
                 
                 if (isSceneFile) {
@@ -46,11 +46,16 @@ const serializationParser = {
                 }
                 
                 // 检查是否是预制体文件
+                const isPrefabFile = types.some(type => type.includes('cc.Prefab'));
+                
+                if (isPrefabFile) {
+                    return this.parsePrefabData(data, filePath);
+                }
+                
+                // 检查是否是精灵图集文件
                 for (let i = 0; i < types.length; i++) {
                     const type = types[i];
-                    if (type.includes('cc.Prefab')) {
-                        return this.parsePrefabData(data, filePath);
-                    } else if (type.includes('cc.SpriteAtlas')) {
+                    if (type.includes('cc.SpriteAtlas')) {
                         return this.parseSpriteAtlasData(data, filePath);
                     }
                 }
