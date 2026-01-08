@@ -408,8 +408,13 @@ const resourceProcessor = {
                 // 提取bundle名称
                 const bundleName = this.extractBundleName(filePath);
                 
-                // 处理资源文件，基于解析的项目结构
-                await this.processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure);
+                // 处理import目录中的序列化文件
+                if (ext === '.json' && filePath.includes('import')) {
+                    await this.processSerializedFile(filePath, fileName, fileKey, bundleName, projectStructure);
+                } else {
+                    // 处理其他资源文件，基于解析的项目结构
+                    await this.processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure);
+                }
                 
                 // 更新bundle统计
                 if (bundleName) {
@@ -574,9 +579,8 @@ const resourceProcessor = {
     async processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure) {
         const ext = path.extname(fileName);
         
-        // 检查是否是序列化文件（import目录中的JSON文件）
-        if (ext === '.json' && filePath.includes('import')) {
-            await this.processSerializedFile(filePath, fileName, fileKey, bundleName, projectStructure);
+        // 跳过import目录中的序列化文件，因为它们已经被processSerializedFile处理过了
+        if (filePath.includes('import')) {
             return;
         }
         
