@@ -6,7 +6,7 @@ const path = require('path');
 const { program } = require('commander');
 const { version } = require('../package.json');
 const { reverseProject } = require('./core/reverseEngine');
-const { logger } = require('./utils/logger');
+const { logger, LogLevel } = require('./utils/logger');
 
 // 配置命令行参数
 program
@@ -16,10 +16,22 @@ program
   .option('-o, --output <path>', '输出路径', './output')
   .option('-v, --verbose', '显示详细日志')
   .option('-s, --silent', '静默模式，不显示进度')
+  .option('--original-structure <path>', '原始资源目录（可选），用于参考输出目录结构')
+  .option('--bundle-concurrency <n>', '分析 bundle 的并发数（默认 1）', '1')
   .option('--version-hint <version>', '提示Cocos Creator版本 (2.3.x|2.4.x)', '')
   .parse(process.argv);
 
 const options = program.opts();
+
+// 根据 CLI 选项设置日志级别与静默模式
+if (options.silent) {
+  logger.setSilent(true);
+}
+if (options.verbose) {
+  logger.setLevel(LogLevel.DEBUG);
+} else {
+  logger.setLevel(LogLevel.INFO);
+}
 
 // 通过命令行参数或环境变量获取路径
 const sourcePath = options.path || process.env.CC_SOURCE_PATH;
@@ -38,6 +50,8 @@ if (!sourcePath) {
       outputPath: path.resolve(options.output),
       verbose: options.verbose,
       silent: options.silent,
+      originalStructure: options.originalStructure,
+      bundleConcurrency: Math.max(1, parseInt(options.bundleConcurrency, 10) || 1),
       versionHint: options.versionHint
     });
     logger.success('逆向工程完成！');

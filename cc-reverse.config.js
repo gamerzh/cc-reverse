@@ -33,6 +33,10 @@ module.exports = {
         verbose: false,
         cacheEnabled: true,
         tempDir: "temp",
-        maxParallel: 4
+        maxParallel: 4,
+        // bundle 并发分析数，默认 1 以避免写冲突，可按需调大
+        bundleConcurrency: 1,
+        // 可选：原始资源目录根，用于参考还原目录结构
+        originalStructureRoot: ""
     }
 }; 

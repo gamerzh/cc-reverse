@@ -60,28 +60,41 @@ const codeAnalyzer = {
             
             // 辅助函数 - 处理模块参数
             const processModuleParams = function(node) {
-                let _require = node.value.elements[0].params[0].name;
-                let _module = node.value.elements[0].params[1].name;
-                let _exports = node.value.elements[0].params[2].name;
-                
-                // 创建变量声明
-                let id1 = types.identifier(`${_require}`);
-                let id2 = types.identifier(`${_module}`);
-                let id3 = types.identifier(`${_exports}`);
-                let init1 = types.identifier("require");
-                let init2 = types.identifier("module");
-                let init3 = types.identifier("exports");
-                let variable1 = types.variableDeclarator(id1, init1);
-                let declaration1 = types.variableDeclaration("let", [variable1]);
-                let variable2 = types.variableDeclarator(id2, init2);
-                let declaration2 = types.variableDeclaration("let", [variable2]);
-                let variable3 = types.variableDeclarator(id3, init3);
-                let declaration3 = types.variableDeclaration("let", [variable3]);
-                
-                // 将声明添加到节点
-                node.value.elements[0].body.body.unshift(declaration1, declaration2, declaration3);
-                
-                return { _require, _module, _exports };
+                try {
+                    if (!node || !node.value || !node.value.elements || !node.value.elements[0]) return null;
+                    const fn = node.value.elements[0];
+                    const params = Array.isArray(fn.params) ? fn.params : [];
+
+                    const getName = (p, fallback) => (p && p.type === 'Identifier' && p.name) ? p.name : fallback;
+                    const _require = getName(params[0], '_require');
+                    const _module = getName(params[1], '_module');
+                    const _exports = getName(params[2], '_exports');
+
+                    // 若 body 不存在则跳过
+                    if (!fn.body || !fn.body.body) return { _require, _module, _exports };
+
+                    // 创建变量声明
+                    const id1 = types.identifier(`${_require}`);
+                    const id2 = types.identifier(`${_module}`);
+                    const id3 = types.identifier(`${_exports}`);
+                    const init1 = types.identifier("require");
+                    const init2 = types.identifier("module");
+                    const init3 = types.identifier("exports");
+                    const variable1 = types.variableDeclarator(id1, init1);
+                    const declaration1 = types.variableDeclaration("let", [variable1]);
+                    const variable2 = types.variableDeclarator(id2, init2);
+                    const declaration2 = types.variableDeclaration("let", [variable2]);
+                    const variable3 = types.variableDeclarator(id3, init3);
+                    const declaration3 = types.variableDeclaration("let", [variable3]);
+
+                    // 将声明添加到节点
+                    fn.body.body.unshift(declaration1, declaration2, declaration3);
+
+                    return { _require, _module, _exports };
+                } catch (e) {
+                    logger.debug('跳过 processModuleParams，节点结构不符合预期');
+                    return null;
+                }
             };
             
             // 辅助函数 - 生成元数据文件
@@ -93,7 +106,9 @@ const codeAnalyzer = {
                             if (a.arguments && a.arguments.length == 3) {
                                 if (a.arguments[1]) {
                                     if (a.arguments[1].type && a.arguments[1].type == "StringLiteral" && a.arguments[1].value != "__esModule") {
-                                        let filename = a.arguments[2].value.split('.')[0] + ".ts";
+                                        const arg2 = a.arguments[2];
+                                        if (!arg2 || !arg2.value || typeof arg2.value !== 'string') continue;
+                                        let filename = arg2.value.split('.')[0] + ".ts";
                                         
                                         let fileMap = new Set();
                                         fileMap[filename] = uuidUtils.decodeUuid(uuidUtils.original_uuid(a.arguments[1].value));
@@ -108,7 +123,9 @@ const codeAnalyzer = {
                     if (node.expression.arguments && node.expression.arguments.length == 3) {
                         if (node.expression.arguments[1]) {                                        
                             if (node.expression.arguments[1].type && node.expression.arguments[1].type == "StringLiteral" && node.expression.arguments[1].value != "__esModule") {
-                                let filename = node.expression.arguments[2].value.split('.')[0] + ".ts";
+                                const arg2 = node.expression.arguments[2];
+                                if (!arg2 || !arg2.value || typeof arg2.value !== 'string') return;
+                                let filename = arg2.value.split('.')[0] + ".ts";
                                 let fileMap = new Set();
                                 fileMap[filename] = uuidUtils.decodeUuid(uuidUtils.original_uuid(node.expression.arguments[1].value));
                                 fileManager.createMetaFile(fileMap);
@@ -177,6 +194,7 @@ const codeAnalyzer = {
             
             // 辅助函数 - 处理节点元素
             const processNodeElements = async function(node, value) {
+                if (!node || !node.value || !node.value.elements || !node.value.elements[0] || !node.value.elements[0].body || !node.value.elements[0].body.body) return;
                 for (let i of node.value.elements[0].body.body) {
                     // 生成元数据文件
                     generateMetaFiles(i);
@@ -195,7 +213,12 @@ const codeAnalyzer = {
                     const { node } = path;
                     if (values.length > 0) {
                         for (let value of values) {
-                            if (node && (node.key.name == value || node.key.value == value) && node.value.elements) {
+                            // 仅在 key 匹配且 value 结构符合数组且第一个元素具有函数体时处理
+                            const keyName = node && node.key ? (node.key.name || node.key.value) : undefined;
+                            const hasElements = node && node.value && Array.isArray(node.value.elements) && node.value.elements[0];
+                            const first = hasElements ? node.value.elements[0] : null;
+                            const hasFuncBody = first && first.body && first.body.body;
+                            if (keyName === value && hasElements && hasFuncBody) {
                                 // 处理模块参数 - 这里直接调用辅助函数
                                 processModuleParams(node);
                                 
@@ -203,7 +226,7 @@ const codeAnalyzer = {
                                 // 改为同步处理或使用其他方式
                                 try {
                                     // 同步处理节点元素
-                                    for (let i of node.value.elements[0].body.body) {
+                                    for (let i of first.body.body) {
                                         // 生成元数据文件
                                         generateMetaFiles(i);
                                         
@@ -212,7 +235,7 @@ const codeAnalyzer = {
                                     }
                                     
                                     // 同步保存 AST 到文件
-                                    const str = JSON.stringify(node.value.elements[0].body);
+                                    const str = JSON.stringify(first.body);
                                     const astPath = require('path').join(global.paths.ast, `${value}.json`);
                                     
                                     // 写入文件

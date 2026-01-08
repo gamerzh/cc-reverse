@@ -32,6 +32,12 @@ cc-reverse --path <源项目路径> --output <输出路径>
 # 指定 Cocos Creator 版本
 cc-reverse --path <源项目路径> --version-hint 2.4.x
 
+# 指定原始资源目录（可选，用于参考输出目录结构）
+cc-reverse --path <源项目路径> --original-structure <原始assets/res路径>
+
+# 设置 bundle 分析并发数（默认 1）
+cc-reverse --path <源项目路径> --bundle-concurrency 4
+
 # 显示详细日志
 cc-reverse --path <源项目路径> --verbose
 ```

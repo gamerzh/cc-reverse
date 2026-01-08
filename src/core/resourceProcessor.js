@@ -456,11 +456,13 @@ const resourceProcessor = {
                 }
             }
             
-            // 2. 扫描原始资源目录结构
-            const originalResPath = "C:\\Workflow\\xsh5\\assets\\res";
-            if (fs.existsSync(originalResPath)) {
+            // 2. 扫描可选的原始资源目录结构（通过 CLI 或配置提供）
+            const originalResPath = (global.paths && global.paths.originalStructureRoot) ? global.paths.originalStructureRoot : '';
+            if (originalResPath && fs.existsSync(originalResPath)) {
                 structure.directories = this.scanDirectoryStructure(originalResPath);
-                logger.info('成功扫描原始项目目录结构');
+                logger.info(`成功扫描原始项目目录结构: ${originalResPath}`);
+            } else if (originalResPath) {
+                logger.warn(`指定的原始目录不存在: ${originalResPath}`);
             }
             
             logger.info('项目结构解析完成');
@@ -653,7 +655,7 @@ const resourceProcessor = {
             // 解析序列化数据
             const parsedData = serializationParser.parseSerializedData(data, filePath);
             
-            if (parsedData) {
+                if (parsedData) {
                 // 根据解析结果的类型处理
                 if (parsedData.__type__ === 'cc.SceneAsset') {
                     // 保存场景文件
@@ -662,8 +664,14 @@ const resourceProcessor = {
                     // 保存预制体文件
                     serializationParser.savePrefabFile(parsedData, global.paths.output, bundleName);
                 } else if (parsedData.__type__ === 'cc.SpriteAtlas') {
-                    // 处理精灵图集
-                    this.spriteFrames[fileKey] = parsedData;
+                    // 处理精灵图集，记录必要上下文，供转换器输出
+                    this.spriteFrames[fileKey] = {
+                        kind: 'atlas',
+                        data: parsedData,
+                        uuid: fileKey,
+                        bundleName: bundleName || 'common',
+                        sourcePath: filePath
+                    };
                 }
             }
         } catch (err) {

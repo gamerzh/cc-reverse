@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
+const parser = require('@babel/parser');
 const { fileManager } = require('../utils/fileManager');
 const { codeAnalyzer } = require('./codeAnalyzer');
 const { resourceProcessor } = require('./resourceProcessor');
@@ -27,10 +28,15 @@ const mkdir = promisify(fs.mkdir);
  * @returns {Promise<void>}
  */
 async function reverseProject(options) {
-  const { sourcePath, outputPath, verbose = false, versionHint } = options;
+  const { sourcePath, outputPath, verbose = false, versionHint, originalStructure, bundleConcurrency } = options;
   
   // 全局配置初始化
   global.config = loadConfig();
+  // 覆盖并发参数（优先使用 CLI 传入）
+  if (!global.config.advanced) global.config.advanced = {};
+  if (bundleConcurrency && Number.isFinite(bundleConcurrency)) {
+    global.config.advanced.bundleConcurrency = Math.max(1, Number(bundleConcurrency));
+  }
   global.verbose = verbose;
   
   logger.info('========================================');
@@ -73,7 +79,8 @@ async function reverseProject(options) {
     output: outputPath,
     res: projectInfo.resPath,
     temp: tempPath,
-    ast: astPath
+    ast: astPath,
+    originalStructureRoot: originalStructure ? path.resolve(originalStructure) : ''
   };
   
   // 读取项目文件
@@ -186,25 +193,36 @@ async function processBundleFiles(sourcePath, outputPath) {
     }
     
     logger.info(`找到 ${bundleFiles.length} 个 bundle 文件，开始分析...`);
-    
-    // 分析每个 bundle 文件（限制只处理前 3 个，以便测试后续流程）
-    const maxBundlesToProcess = 3;
-    logger.info(`限制处理前 ${maxBundlesToProcess} 个 bundle 文件...`);
-    for (let i = 0; i < Math.min(bundleFiles.length, maxBundlesToProcess); i++) {
-      const bundle = bundleFiles[i];
-      logger.info(`分析 bundle 文件 ${i+1}/${maxBundlesToProcess}: ${bundle.name}`);
-      try {
-        const bundleContent = await readFile(bundle.path, 'utf-8');
-        logger.debug(`bundle 文件大小: ${bundleContent.length} 字节`);
-        await codeAnalyzer.analyze(bundleContent);
-        logger.info(`bundle 文件 ${bundle.name} 分析完成`);
-      } catch (err) {
-        logger.error(`分析 bundle 文件 ${bundle.name} 时出错:`, err);
-        // 继续处理下一个 bundle 文件，而不是中断整个流程
-      }
+
+    // 并发控制（默认 1，避免文件写入冲突，可在配置 advanced.bundleConcurrency 或 advanced.maxParallel 调整）
+    const limit = Math.max(1, Number((global.config && global.config.advanced && (global.config.advanced.bundleConcurrency || global.config.advanced.maxParallel)) || 1));
+    logger.info(`使用并发数: ${limit}`);
+
+    // 将数组分块按并发执行
+    const chunks = [];
+    for (let i = 0; i < bundleFiles.length; i += limit) {
+      chunks.push(bundleFiles.slice(i, i + limit));
     }
-    
-    logger.info(`已处理 ${Math.min(bundleFiles.length, maxBundlesToProcess)} 个 bundle 文件，剩余 ${Math.max(0, bundleFiles.length - maxBundlesToProcess)} 个未处理`);
+
+    let processed = 0;
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const chunk = chunks[ci];
+      await Promise.all(chunk.map(async (bundle, idx) => {
+        const overallIndex = processed + idx + 1;
+        logger.info(`分析 bundle 文件 ${overallIndex}/${bundleFiles.length}: ${bundle.name}`);
+        try {
+          const bundleContent = await readFile(bundle.path, 'utf-8');
+          logger.debug(`bundle 文件大小: ${bundleContent.length} 字节`);
+          await codeAnalyzer.analyze(bundleContent);
+          logger.info(`bundle 文件 ${bundle.name} 分析完成`);
+        } catch (err) {
+          logger.error(`分析 bundle 文件 ${bundle.name} 时出错:`, err);
+        }
+      }));
+      processed += chunk.length;
+    }
+
+    logger.info(`已处理 ${processed} 个 bundle 文件`);
     logger.info('所有 bundle 文件分析完成');
   } catch (err) {
     logger.error('处理 bundle 文件时出错:', err);
@@ -409,138 +427,104 @@ function validatePaths(resPath, settingsPath, projectPath) {
  */
 function parseSettings(settings) {
   try {
-    const settingsContent = settings.toString('utf-8');
-    logger.info('设置文件内容长度:', settingsContent.length);
-    logger.info('设置文件内容前 200 字符:', settingsContent.substring(0, 200));
-    
-    // 直接尝试解析 _CCSettings 格式
-    if (settingsContent.includes('window._CCSettings')) {
-      logger.info('检测到 window._CCSettings 格式');
-      // 尝试多种解析方法
-      try {
-        // 方法1: 在窗口对象中执行（最可靠的方法）
-        logger.info('尝试方法1: 在窗口对象中执行');
-        const result = eval("let window = {}; " + settingsContent + "; window");
-        logger.info('方法1执行结果:', result);
-        logger.info('方法1执行结果是否有_CCSettings:', result && result._CCSettings);
-        if (result && result._CCSettings) {
-          global.settings = result;
-          global.settings.CCSettings = result._CCSettings;
-          logger.info('成功解析 _CCSettings 格式');
-          logger.info('解析结果包含的键:', Object.keys(result._CCSettings));
-          return;
-        } else {
-          logger.error('方法1执行成功但没有找到_CCSettings');
-        }
-      } catch (e1) {
-        logger.error('方法1失败:', e1.message);
-        
-        try {
-          // 方法2: 提取 _CCSettings 部分
-          logger.info('尝试方法2: 提取 _CCSettings 部分');
-          const settingsMatch = settingsContent.match(/window\._CCSettings\s*=\s*({[^;]+});/);
-          if (settingsMatch && settingsMatch[1]) {
-            const settingsJson = settingsMatch[1];
-            logger.info('提取的 _CCSettings 长度:', settingsJson.length);
-            logger.info('提取的 _CCSettings 前 100 字符:', settingsJson.substring(0, 100));
-            const _CCSettings = JSON.parse(settingsJson);
-            global.settings = {
-              _CCSettings: _CCSettings,
-              CCSettings: _CCSettings
-            };
-            logger.info('成功解析 _CCSettings 格式');
-            logger.info('解析结果包含的键:', Object.keys(_CCSettings));
-            return;
-          } else {
-            logger.error('方法2: 未找到匹配的_CCSettings内容');
+    const content = settings.toString('utf-8');
+    logger.info('解析 settings.js（AST 模式，无 eval）');
+
+    const ast = parser.parse(content, {
+      sourceType: 'script'
+    });
+
+    // 收集形如 const _CCSettings = {...} 的变量
+    const varMap = new Map();
+    let picked = null;
+
+    function toPlain(node) {
+      if (!node) return undefined;
+      switch (node.type) {
+        case 'NullLiteral':
+          return null;
+        case 'BooleanLiteral':
+        case 'StringLiteral':
+        case 'NumericLiteral':
+          return node.value;
+        case 'ObjectExpression': {
+          const obj = {};
+          for (const prop of node.properties || []) {
+            if (prop.type !== 'ObjectProperty') continue;
+            const key = prop.key.type === 'Identifier' ? prop.key.name : String(prop.key.value);
+            obj[key] = toPlain(prop.value);
           }
-        } catch (e2) {
-          logger.error('方法2失败:', e2.message);
-          
-          try {
-            // 方法3: 简化的提取方法
-            logger.info('尝试方法3: 简化的提取方法');
-            const startIdx = settingsContent.indexOf('{');
-            const endIdx = settingsContent.lastIndexOf('}');
-            if (startIdx !== -1 && endIdx !== -1) {
-              const settingsJson = settingsContent.substring(startIdx, endIdx + 1);
-              logger.info('提取的 JSON 长度:', settingsJson.length);
-              const _CCSettings = JSON.parse(settingsJson);
-              global.settings = {
-                _CCSettings: _CCSettings,
-                CCSettings: _CCSettings
-              };
-              logger.info('成功解析 _CCSettings 格式');
-              logger.info('解析结果包含的键:', Object.keys(_CCSettings));
-              return;
+          return obj;
+        }
+        case 'ArrayExpression':
+          return node.elements.map(el => toPlain(el));
+        case 'Identifier': {
+          // 若引用到之前收集的纯对象变量
+          if (varMap.has(node.name)) return varMap.get(node.name);
+          // 常见字面值标识符容错
+          if (node.name === 'undefined') return undefined;
+          return undefined;
+        }
+        default:
+          return undefined;
+      }
+    }
+
+    for (const stmt of ast.program.body) {
+      if (stmt.type === 'VariableDeclaration') {
+        for (const d of stmt.declarations) {
+          if (d.id && d.id.type === 'Identifier' && d.init && d.init.type === 'ObjectExpression') {
+            const name = d.id.name;
+            if (name === '_CCSettings' || name === 'CCSettings') {
+              const obj = toPlain(d.init);
+              if (obj) {
+                varMap.set(name, obj);
+                picked = picked || obj;
+              }
             } else {
-              logger.error('方法3: 无法找到JSON对象边界');
+              // 其他对象也缓存，供 Identifier 解析
+              const obj = toPlain(d.init);
+              if (obj) varMap.set(name, obj);
             }
-          } catch (e3) {
-            logger.error('方法3失败:', e3.message);
+          }
+        }
+      } else if (stmt.type === 'ExpressionStatement' && stmt.expression.type === 'AssignmentExpression') {
+        const assign = stmt.expression;
+        const left = assign.left;
+        const right = assign.right;
+        // window._CCSettings = {...} 或 window.CCSettings = {...}
+        if (left.type === 'MemberExpression' && !left.computed) {
+          const obj = left.object;
+          const prop = left.property;
+          const objName = obj.type === 'Identifier' ? obj.name : '';
+          const propName = prop.type === 'Identifier' ? prop.name : '';
+          if (objName === 'window' && (propName === '_CCSettings' || propName === 'CCSettings')) {
+            let value = toPlain(right);
+            // 右侧可能是标识符，尝试从 varMap 解析
+            if (value === undefined && right.type === 'Identifier' && varMap.has(right.name)) {
+              value = varMap.get(right.name);
+            }
+            if (value) {
+              picked = picked || value;
+            }
           }
         }
       }
     }
-    
-    // 根据版本使用不同的解析方式
-    if (global.cocosVersion === '2.4.x') {
-      logger.info('使用 Cocos Creator 2.4.x 解析逻辑');
-      // 2.4.x版本的解析逻辑
-      if (settingsContent.includes('window.CCSettings')) {
-        logger.info('检测到 window.CCSettings 格式');
-        // 标准的CCSettings格式
-        let _ccsettings = "let window = {CCSettings: {}};" + settingsContent.split(';')[0];
-        global.settings = eval(_ccsettings);
-        logger.info('解析结果包含的键:', Object.keys(global.settings.CCSettings));
-      } else {
-        // 尝试直接解析为对象
-        try {
-          logger.info('尝试直接解析设置文件');
-          global.settings = eval("let window = {}; " + settingsContent + "; window");
-          logger.info('解析结果包含的键:', Object.keys(global.settings));
-        } catch (e) {
-          logger.error('2.4.x设置文件解析失败，使用默认设置:', e.message);
-          global.settings = { CCSettings: {} };
-        }
-      }
-    } else {
-      logger.info('使用 Cocos Creator 2.3.x 解析逻辑');
-      // 2.3.x及以下版本的原有解析逻辑
-      let _ccsettings = "let window = {CCSettings: {}};" + settingsContent.split(';')[0];
-      global.settings = eval(_ccsettings);
-      logger.info('解析结果包含的键:', Object.keys(global.settings.CCSettings));
-    }
-    
-    // 确保settings不为空
-    if (!global.settings) {
-      logger.error('警告: global.settings 为空，使用默认设置');
+
+    if (!picked && varMap.has('_CCSettings')) picked = varMap.get('_CCSettings');
+    if (!picked && varMap.has('CCSettings')) picked = varMap.get('CCSettings');
+
+    if (!picked) {
+      logger.warn('未在 settings.js 中解析到 _CCSettings/CCSettings，使用空设置');
       global.settings = { CCSettings: {} };
-    } else if (!global.settings.CCSettings && !global.settings._CCSettings) {
-      logger.error('警告: global.settings 中没有找到 CCSettings 或 _CCSettings，使用默认设置');
-      global.settings = { CCSettings: {} };
-    } else {
-      logger.info('设置解析成功，最终结果:');
-      logger.info('global.settings 包含的键:', Object.keys(global.settings));
-      if (global.settings.CCSettings) {
-        logger.info('global.settings.CCSettings 包含的键:', Object.keys(global.settings.CCSettings));
-      }
-      if (global.settings._CCSettings) {
-        logger.info('global.settings._CCSettings 包含的键:', Object.keys(global.settings._CCSettings));
-      }
+      return;
     }
-    
-    if (global.verbose) {
-      logger.info('已加载项目设置:', Object.keys(global.settings));
-      if (global.settings._CCSettings) {
-        logger.info('已加载 _CCSettings:', Object.keys(global.settings._CCSettings));
-      }
-      if (global.settings.CCSettings) {
-        logger.info('已加载 CCSettings:', Object.keys(global.settings.CCSettings));
-      }
-    }
+
+    global.settings = { _CCSettings: picked, CCSettings: picked };
+    logger.info('settings 解析成功，键数量: ' + Object.keys(picked || {}).length);
   } catch (err) {
-    logger.error('解析设置文件时出错:', err);
+    logger.error('解析设置文件时出错（AST）:', err);
     logger.warn('使用默认设置');
     global.settings = { CCSettings: {} };
   }

@@ -36,27 +36,48 @@ const serializationParser = {
 
             logger.debug(`解析序列化数据 - 版本: ${version}, 资源数量: ${objects ? objects.length : 0}`);
 
+            // 从 exportPath 推导资源原名
+            const exportName = this.deriveNameFromExportPath(exportPath);
+
             // 根据类型处理不同的资源
+            const includesTypeDeep = (node, needle) => {
+                if (!node) return false;
+                if (typeof node === 'string') return node.includes(needle);
+                if (Array.isArray(node)) return node.some(n => includesTypeDeep(n, needle));
+                if (typeof node === 'object') return Object.values(node).some(v => includesTypeDeep(v, needle));
+                return false;
+            };
+
             if (types) {
-                // 首先检查是否是场景文件
-                const isSceneFile = data[9] === true || types.some(type => type.includes('cc.SceneAsset'));
+                // 检查是否是预制体文件（优先）
+                const isPrefabFile = Array.isArray(types) && types.some(type => 
+                    (typeof type === 'string' && type.includes('cc.Prefab')) ||
+                    (typeof type === 'object' && includesTypeDeep(type, 'cc.Prefab'))
+                );
                 
-                if (isSceneFile) {
-                    return this.parseSceneData(data, filePath);
+                if (isPrefabFile || includesTypeDeep(data, 'cc.Prefab')) {
+                    return this.parsePrefabData(data, filePath, exportName);
                 }
                 
-                // 检查是否是预制体文件
-                const isPrefabFile = types.some(type => type.includes('cc.Prefab'));
+                // 检查是否是场景文件
+                // 只有当明确标记为场景文件时才处理为场景
+                const isSceneFile = data[9] === true && Array.isArray(types) && types.some(type => 
+                    (typeof type === 'string' && type.includes('cc.SceneAsset')) ||
+                    (typeof type === 'object' && includesTypeDeep(type, 'cc.SceneAsset'))
+                );
                 
-                if (isPrefabFile) {
-                    return this.parsePrefabData(data, filePath);
+                if (isSceneFile) {
+                    return this.parseSceneData(data, filePath, exportName);
                 }
                 
                 // 检查是否是精灵图集文件
-                for (let i = 0; i < types.length; i++) {
-                    const type = types[i];
-                    if (type.includes('cc.SpriteAtlas')) {
-                        return this.parseSpriteAtlasData(data, filePath);
+                if (Array.isArray(types)) {
+                    for (let i = 0; i < types.length; i++) {
+                        const type = types[i];
+                        if ((typeof type === 'string' && type.includes('cc.SpriteAtlas')) ||
+                            (typeof type === 'object' && includesTypeDeep(type, 'cc.SpriteAtlas'))) {
+                            return this.parseSpriteAtlasData(data, filePath, exportName);
+                        }
                     }
                 }
             }
@@ -74,14 +95,14 @@ const serializationParser = {
      * @param {string} filePath 文件路径
      * @returns {Object} 场景对象
      */
-    parseSceneData(data, filePath) {
+    parseSceneData(data, filePath, exportName) {
         try {
             logger.info('解析场景数据:', filePath);
             
             const objects = data[5];
             const sceneData = {
                 __type__: 'cc.SceneAsset',
-                _name: path.basename(filePath, path.extname(filePath)),
+                _name: exportName || path.basename(filePath, path.extname(filePath)),
                 _root: null,
                 _nodes: []
             };
@@ -115,14 +136,14 @@ const serializationParser = {
      * @param {string} filePath 文件路径
      * @returns {Object} 预制体对象
      */
-    parsePrefabData(data, filePath) {
+    parsePrefabData(data, filePath, exportName) {
         try {
             logger.info('解析预制体数据:', filePath);
             
             const objects = data[5];
             const prefabData = {
                 __type__: 'cc.Prefab',
-                _name: path.basename(filePath, path.extname(filePath)),
+                _name: exportName || path.basename(filePath, path.extname(filePath)),
                 _root: null,
                 _nodes: [],
                 _bindings: [],
@@ -158,14 +179,14 @@ const serializationParser = {
      * @param {string} filePath 文件路径
      * @returns {Object} 精灵图集对象
      */
-    parseSpriteAtlasData(data, filePath) {
+    parseSpriteAtlasData(data, filePath, exportName) {
         try {
             logger.info('解析精灵图集数据:', filePath);
             
             const objects = data[5];
             const spriteAtlasData = {
                 __type__: 'cc.SpriteAtlas',
-                _name: path.basename(filePath, path.extname(filePath)),
+                _name: exportName || path.basename(filePath, path.extname(filePath)),
                 _spriteFrames: {},
                 _texture: null
             };
@@ -402,6 +423,23 @@ const serializationParser = {
             "readonly": false,
             "subMetas": {}
         };
+    },
+
+    /**
+     * 从 exportPath 推导资源名称（去后缀）
+     * 例如 db://assets/prefabs/MyPrefab.prefab -> MyPrefab
+     */
+    deriveNameFromExportPath(exportPath) {
+        try {
+            if (!exportPath || typeof exportPath !== 'string') return '';
+            // 去掉协议前缀 db://
+            const cleaned = exportPath.replace(/^db:\/\//, '');
+            const base = path.basename(cleaned);
+            const name = base.replace(/\.(prefab|fire|json|asset)$/i, '');
+            return name || '';
+        } catch (e) {
+            return '';
+        }
     }
 };
 
