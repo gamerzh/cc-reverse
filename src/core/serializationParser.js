@@ -38,11 +38,16 @@ const serializationParser = {
 
             // 根据类型处理不同的资源
             if (types) {
+                // 首先检查是否是场景文件（优先使用 isScene 标记）
+                if (data[9] === true) {
+                    return this.parseSceneData(data, filePath);
+                }
+                
                 for (let i = 0; i < types.length; i++) {
                     const type = types[i];
                     if (type.includes('cc.Prefab')) {
                         return this.parsePrefabData(data, filePath);
-                    } else if (type.includes('cc.SceneAsset') || type.includes('cc.Node')) {
+                    } else if (type.includes('cc.SceneAsset')) {
                         return this.parseSceneData(data, filePath);
                     } else if (type.includes('cc.SpriteAtlas')) {
                         return this.parseSpriteAtlasData(data, filePath);
