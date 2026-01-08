@@ -32,6 +32,9 @@ const resourceProcessor = {
     spriteFrames: {},
     audio: [],
     animation: [],
+
+    // 2.4.x bundle config 映射（仅靠编译产物也可恢复可读名称）
+    uuidPathMap: new Map(),
     
     /**
      * 处理资源文件
@@ -67,6 +70,91 @@ const resourceProcessor = {
         this.spriteFrames = {};
         this.audio = [];
         this.animation = [];
+
+        this.uuidPathMap = new Map();
+    },
+
+    /**
+     * 从编译产物的 bundle config.*.json 中建立 uuid -> 原始路径 的映射。
+     * 说明：Cocos Creator 2.4.x 的 bundle config 通常包含 uuids + paths 表，可用于恢复资源的可读路径。
+     */
+    async buildUuidPathMapFromBundleConfigs() {
+        try {
+            const map = new Map();
+            for (const filePath of this.fileList) {
+                const ext = path.extname(filePath).toLowerCase();
+                if (ext !== '.json') continue;
+                const fileName = path.basename(filePath);
+
+                // 常见命名：config.<hash>.json 或 config.json
+                if (!/^config(\.[a-f0-9]+)?\.json$/i.test(fileName)) continue;
+
+                let json;
+                try {
+                    const content = await readFile(filePath, 'utf-8');
+                    json = JSON.parse(content);
+                } catch {
+                    continue;
+                }
+
+                if (!json || !json.uuids || !json.paths) continue;
+                const bundleName = this.extractBundleName(filePath) || 'common';
+
+                const uuids = Array.isArray(json.uuids) ? json.uuids : [];
+                const decode = (id) => {
+                    if (typeof id !== 'string') return '';
+                    return (id.length === 22) ? (uuidUtils.decodeUuid(id) || id) : id;
+                };
+
+                const record = (uuid, p) => {
+                    if (!uuid || typeof p !== 'string' || !p) return;
+                    // 只记录一次；若多 bundle 重复，保留先遇到的
+                    if (!map.has(uuid)) {
+                        map.set(uuid, { path: p, bundle: bundleName });
+                    }
+                };
+
+                const paths = json.paths;
+                if (Array.isArray(paths)) {
+                    for (let i = 0; i < paths.length; i++) {
+                        const uuid = decode(uuids[i]);
+                        const item = paths[i];
+                        const p = Array.isArray(item) ? item[0] : item;
+                        record(uuid, p);
+                    }
+                } else if (paths && typeof paths === 'object') {
+                    for (const k of Object.keys(paths)) {
+                        const idx = Number(k);
+                        if (!Number.isFinite(idx)) continue;
+                        const uuid = decode(uuids[idx]);
+                        const item = paths[k];
+                        const p = Array.isArray(item) ? item[0] : item;
+                        record(uuid, p);
+                    }
+                }
+
+                // scenes 表有时单独存在
+                if (json.scenes && typeof json.scenes === 'object') {
+                    for (const k of Object.keys(json.scenes)) {
+                        const idx = Number(k);
+                        if (!Number.isFinite(idx)) continue;
+                        const uuid = decode(uuids[idx]);
+                        const p = json.scenes[k];
+                        record(uuid, p);
+                    }
+                }
+            }
+
+            this.uuidPathMap = map;
+            global.uuidPathMap = map;
+            if (global.verbose) {
+                logger.info(`[命名映射] 从 bundle config 建立 uuid->path 映射数量: ${map.size}`);
+            }
+        } catch (err) {
+            logger.warn('从 bundle config 构建 uuid->path 映射失败:', err);
+            this.uuidPathMap = new Map();
+            global.uuidPathMap = this.uuidPathMap;
+        }
     },
     
     /**
@@ -396,6 +484,9 @@ const resourceProcessor = {
             
             // 解析项目结构
             const projectStructure = await this.parseProjectStructure();
+
+            // 仅靠编译产物恢复可读名称：先从 bundle config.*.json 读取 uuid->path
+            await this.buildUuidPathMapFromBundleConfigs();
             
             // 统计每个bundle的资源数量
             const bundleStats = new Map();
@@ -653,7 +744,7 @@ const resourceProcessor = {
             const data = JSON.parse(content);
             
             // 解析序列化数据
-            const parsedData = serializationParser.parseSerializedData(data, filePath, bundleName);
+            const parsedData = serializationParser.parseSerializedData(data, filePath, bundleName, fileKey);
             
                 if (parsedData) {
                 // 根据解析结果的类型处理

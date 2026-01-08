@@ -321,6 +321,48 @@ describe('cc-reverse smoke', () => {
     expect(await fileExists(prefabPath)).toBe(true);
   });
 
+  test('prefab name derived from bundle config mapping (no originalStructure)', async () => {
+    const src = await createTempDir('cc-rev-src-');
+    const out = await createTempDir('cc-rev-out-');
+
+    const uuid = '2e8888b7-3760-4764-9a69-c8f7f036444f';
+
+    // Minimal settings/project
+    await write(path.join(src, 'src', 'settings.js'), minimalSettingsContent());
+    await write(path.join(src, 'src', 'project.js'), 'console.log("project");');
+
+    // 2.4.x build layout uses assets/<bundle>/config.*.json, but our detector just needs res=assets.
+    // Put a bundle config that maps uuid -> prefabs/ReadableFromConfig
+    await write(path.join(src, 'assets', 'common', 'config.abcdef.json'), JSON.stringify({
+      uuids: [uuid],
+      paths: {
+        0: ['prefabs/ReadableFromConfig', 0]
+      }
+    }));
+
+    // Import JSON for prefab
+    await write(path.join(src, 'assets', 'common', 'import', 'prefabs', `${uuid}.json`), JSON.stringify([
+      1,
+      [],
+      [],
+      ['cc.Prefab'],
+      [],
+      []
+    ]));
+
+    const ok = await reverseProject({
+      sourcePath: src,
+      outputPath: out,
+      verbose: false,
+      versionHint: '2.4.x',
+      bundleConcurrency: 1
+    });
+
+    expect(ok).toBeTruthy();
+    const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'ReadableFromConfig.prefab');
+    expect(await fileExists(prefabPath)).toBe(true);
+  });
+
   test('prefab name derived from originalStructure when uuid matches meta', async () => {
     const src = await createTempDir('cc-rev-src-');
     const out = await createTempDir('cc-rev-out-');

@@ -20,7 +20,7 @@ const serializationParser = {
      * @param {string} filePath 文件路径
      * @returns {Object} 解析后的资源对象
      */
-    parseSerializedData(data, filePath, bundleName) {
+    parseSerializedData(data, filePath, bundleName, assetId) {
         try {
             if (!Array.isArray(data)) {
                 logger.warn('序列化数据格式错误，不是数组，已跳过:', filePath);
@@ -40,12 +40,13 @@ const serializationParser = {
 
             logger.debug(`解析序列化数据 - 版本: ${version}, 资源数量: ${objects ? objects.length : 0}`);
 
-            // 从多种来源推导资源原名：exportPath -> rawAssets -> 原始目录 -> names[] -> data 深扫 -> 根节点 -> 文件名
+            // 从多种来源推导资源原名：exportPath -> rawAssets -> bundle config -> 原始目录 -> names[] -> data 深扫 -> 根节点 -> 文件名
             let exportName = this.deriveNameFromExportPath(exportPath);
             const rawAssetName = this.deriveNameFromRawAssets(Array.isArray(uuids) ? uuids : []);
+            const bundleConfigName = this.deriveNameFromBundleConfig(assetId, bundleName);
             const originalStructName = this.deriveNameFromOriginalStructure(filePath, bundleName, Array.isArray(uuids) ? uuids : []);
             if (!exportName) {
-                exportName = rawAssetName || originalStructName || this.deriveNameFromDataDeep(data) || '';
+                exportName = rawAssetName || bundleConfigName || originalStructName || this.deriveNameFromDataDeep(data) || '';
             }
             const namesArr = Array.isArray(names) ? names : [];
 
@@ -671,6 +672,35 @@ const serializationParser = {
             if (global.verbose) {
                 logger.debug(`[命名诊断] ✗ 异常: ${e.message}`);
             }
+            return '';
+        }
+    },
+
+    /**
+     * 从编译产物的 bundle config.*.json 建立的 uuid->path 映射中推导名称（无需编译前对照）。
+     * 常见：path 为 "prefabs/Foo" 或 "scenes/Main"，此处取 basename 作为资源名。
+     */
+    deriveNameFromBundleConfig(assetId, bundleName) {
+        try {
+            const map = global.uuidPathMap;
+            if (!map || typeof map.get !== 'function') return '';
+            if (!assetId || typeof assetId !== 'string') return '';
+
+            const stem = assetId.split('.')[0];
+            const key = (stem.length === 22) ? (uuidUtils.decodeUuid(stem) || stem) : stem;
+
+            const hit = map.get(key);
+            if (!hit || !hit.path) return '';
+
+            // bundle 只做弱约束：允许 common 或未标注
+            if (hit.bundle && bundleName && hit.bundle !== bundleName && bundleName !== 'common') {
+                // 不直接拒绝：有些构建会把资源打进不同 bundle
+            }
+
+            const base = path.basename(String(hit.path));
+            const name = base.replace(/\.(prefab|fire|json|asset)$/i, '');
+            return name || '';
+        } catch {
             return '';
         }
     },
