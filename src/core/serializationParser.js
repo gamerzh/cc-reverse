@@ -40,10 +40,10 @@ const serializationParser = {
             if (types) {
                 for (let i = 0; i < types.length; i++) {
                     const type = types[i];
-                    if (type.includes('cc.SceneAsset') || type.includes('cc.Node')) {
-                        return this.parseSceneData(data, filePath);
-                    } else if (type.includes('cc.Prefab')) {
+                    if (type.includes('cc.Prefab')) {
                         return this.parsePrefabData(data, filePath);
+                    } else if (type.includes('cc.SceneAsset') || type.includes('cc.Node')) {
+                        return this.parseSceneData(data, filePath);
                     } else if (type.includes('cc.SpriteAtlas')) {
                         return this.parseSpriteAtlasData(data, filePath);
                     }
@@ -346,10 +346,10 @@ const serializationParser = {
     saveSceneFile(sceneData, outputPath, bundleName) {
         try {
             const sceneName = sceneData._name || 'scene';
-            const scenePath = path.join(outputPath, 'assets', 'res', bundleName, 'scenes', `${sceneName}.fire`);
+            const scenePath = path.join(outputPath, 'assets', bundleName, 'scenes', `${sceneName}.fire`);
             
-            fileManager.writeFile(path.join('res', bundleName, 'scenes'), `${sceneName}.fire`, sceneData);
-            fileManager.writeFile(path.join('res', bundleName, 'scenes'), `${sceneName}.fire.meta`, this.generateMetaFile(sceneData));
+            fileManager.writeFile(path.join(bundleName, 'scenes'), `${sceneName}.fire`, sceneData);
+            fileManager.writeFile(path.join(bundleName, 'scenes'), `${sceneName}.fire.meta`, this.generateMetaFile(sceneData));
             
             logger.info(`保存场景文件: ${scenePath}`);
         } catch (err) {
@@ -366,10 +366,10 @@ const serializationParser = {
     savePrefabFile(prefabData, outputPath, bundleName) {
         try {
             const prefabName = prefabData._name || 'prefab';
-            const prefabPath = path.join(outputPath, 'assets', 'res', bundleName, 'prefabs', `${prefabName}.prefab`);
+            const prefabPath = path.join(outputPath, 'assets', bundleName, 'prefabs', `${prefabName}.prefab`);
             
-            fileManager.writeFile(path.join('res', bundleName, 'prefabs'), `${prefabName}.prefab`, prefabData);
-            fileManager.writeFile(path.join('res', bundleName, 'prefabs'), `${prefabName}.prefab.meta`, this.generateMetaFile(prefabData));
+            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${prefabName}.prefab`, prefabData);
+            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${prefabName}.prefab.meta`, this.generateMetaFile(prefabData));
             
             logger.info(`保存预制体文件: ${prefabPath}`);
         } catch (err) {
