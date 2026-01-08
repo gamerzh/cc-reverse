@@ -363,6 +363,44 @@ describe('cc-reverse smoke', () => {
     expect(await fileExists(prefabPath)).toBe(true);
   });
 
+  test('prefab name derived from originalStructure when import filename uuid matches meta (2.4.x style)', async () => {
+    const src = await createTempDir('cc-rev-src-');
+    const out = await createTempDir('cc-rev-out-');
+    const orig = await createTempDir('cc-rev-orig-');
+
+    const uuid = '2e8888b7-3760-4764-9a69-c8f7f036444f';
+    const origRoot = path.join(orig, 'assets', 'res');
+    const origPrefabDir = path.join(origRoot, 'fhpoker', 'prefabs');
+    await write(path.join(origPrefabDir, 'Readable.prefab'), 'prefab');
+    await write(path.join(origPrefabDir, 'Readable.prefab.meta'), JSON.stringify({ uuid }));
+
+    await write(path.join(src, 'src', 'settings.js'), minimalSettingsContent());
+    await write(path.join(src, 'src', 'project.js'), 'console.log("project");');
+
+    // 2.4.x style import filename: <uuid>.<hash>.json; uuids[] may be empty
+    await write(path.join(src, 'res', 'import', 'prefabs', `${uuid}.49350.json`), JSON.stringify([
+      1,                // version
+      [],               // uuids (dependencies only; empty here)
+      [],               // names
+      ['cc.Prefab'],    // types
+      [],               // typeIndices
+      []                // objects
+    ]));
+
+    const ok = await reverseProject({
+      sourcePath: src,
+      outputPath: out,
+      verbose: true,
+      originalStructure: origRoot,
+      versionHint: '2.3.x',
+      bundleConcurrency: 1
+    });
+
+    expect(ok).toBeTruthy();
+    const prefabPath = path.join(out, 'assets', 'common', 'prefabs', 'Readable.prefab');
+    expect(await fileExists(prefabPath)).toBe(true);
+  });
+
   test('non-array serialized JSON is skipped without throwing', async () => {
     const src = await createTempDir('cc-rev-src-');
     const out = await createTempDir('cc-rev-out-');

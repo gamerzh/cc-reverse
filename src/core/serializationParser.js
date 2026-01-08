@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { logger } = require('../utils/logger');
 const { fileManager } = require('../utils/fileManager');
+const { uuidUtils } = require('../utils/uuidUtils');
 
 /**
  * 序列化数据解析器
@@ -175,11 +176,11 @@ const serializationParser = {
                 }
             }
 
-            // 若无 exportPath 且可获取根节点名称，则用根节点名作为可读名
+            // 若无 exportPath 且可获取根节点名称，则用根节点名作为可读名（但过滤掉无意义名称）
             if ((!exportName || exportName.length === 0) && prefabData._root && prefabData._root._name) {
-                const rootName = String(prefabData._root._name || '').trim();
-                // 避免大量 prefab 根节点都叫 Node 导致文件名冲突
-                if (rootName && rootName !== 'Node') {
+                const rootNameRaw = prefabData._root._name;
+                const rootName = (typeof rootNameRaw === 'string') ? rootNameRaw.trim() : '';
+                if (this.isMeaningfulAssetName(rootName)) {
                     prefabData._name = rootName;
                 }
             }
@@ -415,13 +416,14 @@ const serializationParser = {
      */
     savePrefabFile(prefabData, outputPath, bundleName) {
         try {
-            const baseName = this.sanitizeFileName(prefabData._name || 'prefab');
+            const rawName = (typeof prefabData._name === 'string') ? prefabData._name : '';
+            const baseName = this.sanitizeFileName(this.isMeaningfulAssetName(rawName) ? rawName : '');
             const dir = path.join(outputPath, 'assets', bundleName, 'prefabs');
 
             // 若名称过于通用，使用源文件名作为更稳定的 fallback，避免覆盖
             const sourceKey = this.sanitizeFileName(path.basename(prefabData._file || '', path.extname(prefabData._file || '')));
             let prefabName = baseName;
-            if (!prefabName || prefabName === 'asset' || prefabName === 'Node') {
+            if (!prefabName || prefabName === 'asset' || prefabName === 'Node' || /\[object\s+Object\]/i.test(prefabName)) {
                 prefabName = sourceKey || prefabName || 'prefab';
             }
 
@@ -609,7 +611,7 @@ const serializationParser = {
     deriveNameFromOriginalStructure(filePath, bundleName, uuids) {
         try {
             const origRoot = global.paths && global.paths.originalStructureRoot;
-            if (!origRoot || !Array.isArray(uuids) || uuids.length === 0) return '';
+            if (!origRoot || !Array.isArray(uuids)) return '';
             if (!this.originalPrefabCache || this.originalPrefabCacheRoot !== origRoot) {
                 this.buildOriginalPrefabCache();
             }
@@ -618,7 +620,20 @@ const serializationParser = {
             const bundleMatch = (hitBundle) => (!hitBundle || !bundleName || hitBundle === bundleName || bundleName === 'common');
 
             for (const id of uuids) {
-                const hit = cache.byUuid[id];
+                const key = (typeof id === 'string' && id.length === 22) ? (uuidUtils.decodeUuid(id) || id) : id;
+                const hit = cache.byUuid[key];
+                if (hit && bundleMatch(hit.bundle)) {
+                    return hit.name;
+                }
+            }
+
+            // 2.4.x 常见情况：uuids[] 是依赖资源列表，不包含当前 prefab 自己的 uuid。
+            // 这时尝试用 import 文件名里的 uuid（第一个点之前）去匹配原始 prefab.meta。
+            const fileStem = path.basename(filePath, path.extname(filePath));
+            const stemUuid = fileStem.split('.')[0];
+            if (stemUuid) {
+                const key = (stemUuid.length === 22) ? (uuidUtils.decodeUuid(stemUuid) || stemUuid) : stemUuid;
+                const hit = cache.byUuid[key];
                 if (hit && bundleMatch(hit.bundle)) {
                     return hit.name;
                 }
@@ -634,6 +649,24 @@ const serializationParser = {
         } catch {
             return '';
         }
+    },
+
+    /**
+     * 判断名称是否“像一个资源名”，避免 Node / [object Object] / 属性名 等无意义内容
+     */
+    isMeaningfulAssetName(name) {
+        if (!name || typeof name !== 'string') return false;
+        const s = name.trim();
+        if (!s) return false;
+        if (s === 'Node' || s === 'asset') return false;
+        if (/\[object\s+Object\]/i.test(s)) return false;
+        // 2.4.x 解析时可能得到数组/对象字符串化后的逗号串，通常不是好名字
+        if (/^\d+,/.test(s)) return false;
+        // 常见属性名（来自 names[]）
+        const lower = s.toLowerCase();
+        const bad = new Set(['node', 'root', 'data', '_spriteframe', '_texturesetter', '_defaultclip', '_name']);
+        if (bad.has(lower)) return false;
+        return true;
     },
 
     /**
