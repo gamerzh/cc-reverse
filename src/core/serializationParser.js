@@ -619,10 +619,20 @@ const serializationParser = {
 
             const bundleMatch = (hitBundle) => (!hitBundle || !bundleName || hitBundle === bundleName || bundleName === 'common');
 
+            // 诊断日志：显示正在尝试匹配的信息
+            if (global.verbose) {
+                logger.debug(`[命名诊断] 文件: ${path.basename(filePath)}`);
+                logger.debug(`[命名诊断] bundle: ${bundleName}, uuids数量: ${uuids.length}`);
+                logger.debug(`[命名诊断] 缓存中UUID数量: ${Object.keys(cache.byUuid).length}, 基础名数量: ${Object.keys(cache.byBase).length}`);
+            }
+
             for (const id of uuids) {
                 const key = (typeof id === 'string' && id.length === 22) ? (uuidUtils.decodeUuid(id) || id) : id;
                 const hit = cache.byUuid[key];
                 if (hit && bundleMatch(hit.bundle)) {
+                    if (global.verbose) {
+                        logger.debug(`[命名诊断] ✓ 通过uuids[]匹配成功: ${hit.name} (uuid: ${key.substring(0, 8)}...)`);
+                    }
                     return hit.name;
                 }
             }
@@ -635,18 +645,32 @@ const serializationParser = {
                 const key = (stemUuid.length === 22) ? (uuidUtils.decodeUuid(stemUuid) || stemUuid) : stemUuid;
                 const hit = cache.byUuid[key];
                 if (hit && bundleMatch(hit.bundle)) {
+                    if (global.verbose) {
+                        logger.debug(`[命名诊断] ✓ 通过文件名UUID匹配成功: ${hit.name} (uuid: ${key.substring(0, 8)}...)`);
+                    }
                     return hit.name;
+                } else if (global.verbose) {
+                    logger.debug(`[命名诊断] ✗ 文件名UUID (${stemUuid.substring(0, 8)}...) 在缓存中未找到`);
                 }
             }
 
             const baseNoExt = path.basename(filePath, path.extname(filePath));
             const hitBase = cache.byBase[baseNoExt];
             if (hitBase && bundleMatch(hitBase.bundle)) {
+                if (global.verbose) {
+                    logger.debug(`[命名诊断] ✓ 通过基础名匹配成功: ${hitBase.name}`);
+                }
                 return hitBase.name;
             }
 
+            if (global.verbose) {
+                logger.debug(`[命名诊断] ✗ 所有匹配方法都失败，无法还原名称`);
+            }
             return '';
-        } catch {
+        } catch (e) {
+            if (global.verbose) {
+                logger.debug(`[命名诊断] ✗ 异常: ${e.message}`);
+            }
             return '';
         }
     },
