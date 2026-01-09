@@ -35,6 +35,7 @@ const resourceProcessor = {
 
     // 2.4.x bundle config 映射（仅靠编译产物也可恢复可读名称）
     uuidPathMap: new Map(),
+    importHashToUuid: new Map(),
     
     /**
      * 处理资源文件
@@ -72,6 +73,7 @@ const resourceProcessor = {
         this.animation = [];
 
         this.uuidPathMap = new Map();
+        this.importHashToUuid = new Map();
     },
 
     /**
@@ -81,6 +83,7 @@ const resourceProcessor = {
     async buildUuidPathMapFromBundleConfigs() {
         try {
             const map = new Map();
+            const importHashToUuid = new Map();
             for (const filePath of this.fileList) {
                 const ext = path.extname(filePath).toLowerCase();
                 if (ext !== '.json') continue;
@@ -143,17 +146,80 @@ const resourceProcessor = {
                         record(uuid, p);
                     }
                 }
+
+                // versions.import: [idx, md5, idx, md5, ...] 或 [[idx, md5], ...]
+                // 用于从 md5 文件名反查 uuid
+                const vImport = json.versions && json.versions.import;
+                const vNative = json.versions && json.versions.native;
+                const nativeByIdx = new Map();
+
+                const addNative = (idx, hash) => {
+                    const i = Number(idx);
+                    if (!Number.isFinite(i)) return;
+                    if (typeof hash !== 'string' || !hash) return;
+                    nativeByIdx.set(i, hash);
+                };
+
+                if (Array.isArray(vNative)) {
+                    if (vNative.length > 0 && Array.isArray(vNative[0])) {
+                        for (const pair of vNative) {
+                            if (Array.isArray(pair) && pair.length >= 2) {
+                                addNative(pair[0], pair[1]);
+                            }
+                        }
+                    } else {
+                        for (let i = 0; i + 1 < vNative.length; i += 2) {
+                            addNative(vNative[i], vNative[i + 1]);
+                        }
+                    }
+                }
+
+                const addImportMap = (idx, hash) => {
+                    const i = Number(idx);
+                    if (!Number.isFinite(i)) return;
+                    if (typeof hash !== 'string' || !hash) return;
+                    const uuid = decode(uuids[i]);
+                    if (!uuid) return;
+                    if (!importHashToUuid.has(hash)) {
+                        importHashToUuid.set(hash, { uuid, bundle: bundleName });
+                    }
+
+                    // 有些构建的 import 文件名会拼接 native hash：<import>.<native>
+                    const n = nativeByIdx.get(i);
+                    if (n && !importHashToUuid.has(`${hash}.${n}`)) {
+                        importHashToUuid.set(`${hash}.${n}`, { uuid, bundle: bundleName });
+                    }
+                };
+
+                if (Array.isArray(vImport)) {
+                    if (vImport.length > 0 && Array.isArray(vImport[0])) {
+                        for (const pair of vImport) {
+                            if (Array.isArray(pair) && pair.length >= 2) {
+                                addImportMap(pair[0], pair[1]);
+                            }
+                        }
+                    } else {
+                        for (let i = 0; i + 1 < vImport.length; i += 2) {
+                            addImportMap(vImport[i], vImport[i + 1]);
+                        }
+                    }
+                }
             }
 
             this.uuidPathMap = map;
             global.uuidPathMap = map;
+            this.importHashToUuid = importHashToUuid;
+            global.importHashToUuid = importHashToUuid;
             if (global.verbose) {
                 logger.info(`[命名映射] 从 bundle config 建立 uuid->path 映射数量: ${map.size}`);
+                logger.info(`[命名映射] 从 bundle config 建立 importHash->uuid 映射数量: ${importHashToUuid.size}`);
             }
         } catch (err) {
             logger.warn('从 bundle config 构建 uuid->path 映射失败:', err);
             this.uuidPathMap = new Map();
             global.uuidPathMap = this.uuidPathMap;
+            this.importHashToUuid = new Map();
+            global.importHashToUuid = this.importHashToUuid;
         }
     },
     
@@ -742,9 +808,27 @@ const resourceProcessor = {
             // 读取序列化文件
             const content = await readFile(filePath, 'utf-8');
             const data = JSON.parse(content);
+
+            // 2.4.x 常见：import 文件名可能是 md5，需要通过 config.versions.import 反查 uuid
+            let assetId = fileKey;
+            const importMap = global.importHashToUuid;
+            if (importMap && typeof importMap.get === 'function') {
+                const candidates = [fileKey];
+                if (typeof fileKey === 'string' && fileKey.includes('.')) {
+                    candidates.push(fileKey.split('.')[0]);
+                }
+
+                for (const cand of candidates) {
+                    const hit = importMap.get(cand);
+                    if (hit && hit.uuid) {
+                        assetId = hit.uuid;
+                        break;
+                    }
+                }
+            }
             
             // 解析序列化数据
-            const parsedData = serializationParser.parseSerializedData(data, filePath, bundleName, fileKey);
+            const parsedData = serializationParser.parseSerializedData(data, filePath, bundleName, assetId);
             
                 if (parsedData) {
                 // 根据解析结果的类型处理
