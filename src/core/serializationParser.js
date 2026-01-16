@@ -448,7 +448,15 @@ const serializationParser = {
                 }
             }
             const baseName = this.sanitizeFileName(this.isMeaningfulAssetName(rawName) ? rawName : '');
-            const dir = path.join(outputPath, 'assets', bundleName, 'prefabs');
+            // 目录选择：优先使用从配置推导出的相对目录（若有），否则直接放在 bundle 根目录
+            const derivedPath = (typeof prefabData._derivedPath === 'string') ? prefabData._derivedPath : '';
+            const derivedSubdir = derivedPath ? path.dirname(derivedPath) : '';
+            const dirParts = [];
+            if (derivedSubdir && derivedSubdir !== '.' && derivedSubdir !== '') {
+                dirParts.push(...derivedSubdir.split(/[\/]/));
+            }
+            // 如果没有子目录信息，直接放在 bundle 根目录下
+            const dir = path.join(outputPath, 'assets', bundleName, ...dirParts);
 
             // 若名称过于通用，使用源文件名作为更稳定的 fallback，避免覆盖
             const sourceKey = this.sanitizeFileName(path.basename(prefabData._file || '', path.extname(prefabData._file || '')));
@@ -467,16 +475,20 @@ const serializationParser = {
                 counter += 1;
             }
 
-            const prefabPath = path.join(outputPath, 'assets', bundleName, 'prefabs', `${finalName}.prefab`);
+            const prefabPath = path.join(dir, `${finalName}.prefab`);
+            
+            // 计算写入路径（相对于 assets/）
+            const metaDir = dirParts.length > 0 ? dirParts.join('/') : '';
+            const writeDir = metaDir ? path.join(bundleName, metaDir) : bundleName;
             
             // 如果有原始文本，直接写入原始内容，避免再次序列化破坏结构
             if (prefabData._raw) {
-                fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab`, prefabData._raw);
+                fileManager.writeFile(writeDir, `${finalName}.prefab`, prefabData._raw);
             } else {
-                fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab`, prefabData);
+                fileManager.writeFile(writeDir, `${finalName}.prefab`, prefabData);
             }
 
-            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab.meta`, this.generateMetaFile(prefabData));
+            fileManager.writeFile(writeDir, `${finalName}.prefab.meta`, this.generateMetaFile(prefabData));
             
             logger.info(`保存预制体文件: ${prefabPath}`);
         } catch (err) {

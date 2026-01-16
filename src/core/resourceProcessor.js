@@ -854,8 +854,9 @@ const resourceProcessor = {
         const uuid = fileKey;
         const uuidStem = (typeof uuid === 'string' && uuid.includes('.')) ? uuid.split('.')[0] : uuid;
         
-        // 尝试从 importHashToPath 推导资源名称（针对纹理和其他资源）
+        // 尝试从 importHashToPath 推导资源名称与相对目录（针对纹理和其他资源）
         let derivedFileName = fileName;
+        let derivedSubdir = '';
         if (global.importHashToPath && typeof global.importHashToPath.get === 'function') {
             const candidates = [fileKey];
             if (typeof fileKey === 'string' && fileKey.includes('.')) {
@@ -868,6 +869,11 @@ const resourceProcessor = {
                     // 从推导的路径提取文件名并保留扩展名
                     const baseName = path.basename(String(hit.path));
                     const nameWithoutExt = baseName.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                    // 记录相对目录（若存在）以还原层级
+                    const dirPart = path.dirname(String(hit.path));
+                    if (dirPart && dirPart !== '.' && dirPart !== '') {
+                        derivedSubdir = dirPart;
+                    }
                     if (nameWithoutExt && nameWithoutExt.length > 0) {
                         derivedFileName = nameWithoutExt + ext;
                         if (global.verbose) {
@@ -885,6 +891,10 @@ const resourceProcessor = {
             if (hit && hit.path) {
                 const baseName = path.basename(String(hit.path));
                 const nameWithoutExt = baseName.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                const dirPart = path.dirname(String(hit.path));
+                if (dirPart && dirPart !== '.' && dirPart !== '') {
+                    derivedSubdir = dirPart;
+                }
                 if (nameWithoutExt && nameWithoutExt.length > 0) {
                     derivedFileName = nameWithoutExt + ext;
                     if (global.verbose) {
@@ -905,16 +915,26 @@ const resourceProcessor = {
         if (dirExists) {
             // 如果bundle在原始目录结构中存在，保持原始结构
             const originalStructure = this.detectOriginalStructure(projectStructure.directories, bundleName);
-            targetPath = path.join(global.paths.output, 'assets', ...originalStructure, resourceDir, derivedFileName);
-            metaDir = path.join(...originalStructure, resourceDir);
+            // 如果有 config 推导的子目录，使用它；否则直接放 bundle 根目录（不使用 resourceDir）
+            const relDir = derivedSubdir ? path.join(...derivedSubdir.split(/[\/]/)) : '';
+            targetPath = relDir 
+                ? path.join(global.paths.output, 'assets', ...originalStructure, relDir, derivedFileName)
+                : path.join(global.paths.output, 'assets', ...originalStructure, derivedFileName);
+            metaDir = relDir ? path.join(...originalStructure, relDir) : path.join(...originalStructure);
         } else if (bundleExists) {
             // 如果bundle在settings中存在但目录不存在，使用bundle结构
-            targetPath = path.join(global.paths.output, 'assets', bundleName, resourceDir, derivedFileName);
-            metaDir = path.join(bundleName, resourceDir);
+            const relDir = derivedSubdir ? path.join(...derivedSubdir.split(/[\/]/)) : '';
+            targetPath = relDir
+                ? path.join(global.paths.output, 'assets', bundleName, relDir, derivedFileName)
+                : path.join(global.paths.output, 'assets', bundleName, derivedFileName);
+            metaDir = relDir ? path.join(bundleName, relDir) : bundleName;
         } else {
             // 否则使用默认结构
-            targetPath = path.join(global.paths.output, 'assets', 'resources', bundleName, resourceDir, derivedFileName);
-            metaDir = path.join('resources', bundleName, resourceDir);
+            const relDir = derivedSubdir ? path.join(...derivedSubdir.split(/[\/]/)) : '';
+            targetPath = relDir
+                ? path.join(global.paths.output, 'assets', 'resources', bundleName, relDir, derivedFileName)
+                : path.join(global.paths.output, 'assets', 'resources', bundleName, derivedFileName);
+            metaDir = relDir ? path.join('resources', bundleName, relDir) : path.join('resources', bundleName);
         }
         
         // 添加到缓存列表
