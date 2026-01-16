@@ -67,7 +67,10 @@ const serializationParser = {
                 );
                 
                 if (isPrefabFile || includesTypeDeep(data, 'cc.Prefab')) {
-                    return this.parsePrefabData(data, filePath, exportName, namesArr, rawAssetName, originalStructName);
+                    // 优先尝试直接从原始项目（library/assets）读取已存在的 prefab，避免反序列化误差
+                    const reused = this.loadPrefabFromOriginalProject(exportName || rawAssetName || originalStructName, bundleName);
+                    if (reused) return reused;
+                    return this.parsePrefabData(data, filePath, exportName, namesArr, rawAssetName, originalStructName, bundleName);
                 }
                 
                 // 检查是否是场景文件
@@ -147,10 +150,13 @@ const serializationParser = {
      * @param {string} filePath 文件路径
      * @returns {Object} 预制体对象
      */
-    parsePrefabData(data, filePath, exportName, namesArr, rawAssetName, originalStructName) {
+    parsePrefabData(data, filePath, exportName, namesArr, rawAssetName, originalStructName, bundleName) {
         try {
             logger.info('解析预制体数据:', filePath);
-            
+            // 优先尝试直接复用原始项目中的 prefab
+            const reused = this.loadPrefabFromOriginalProject(exportName || rawAssetName || originalStructName, bundleName);
+            if (reused) return reused;
+
             const objects = data[5];
             const prefabData = {
                 __type__: 'cc.Prefab',
@@ -417,7 +423,24 @@ const serializationParser = {
      */
     savePrefabFile(prefabData, outputPath, bundleName) {
         try {
-            const rawName = (typeof prefabData._name === 'string') ? prefabData._name : '';
+            let rawName = (typeof prefabData._name === 'string') ? prefabData._name : '';
+            // 如果没有名字但有原始文本，尝试从原始文本解析 _name
+            if ((!rawName || rawName.length === 0) && typeof prefabData._raw === 'string') {
+                try {
+                    const parsedRaw = JSON.parse(prefabData._raw);
+                    if (parsedRaw && parsedRaw.value) {
+                        if (parsedRaw.value[0] && parsedRaw.value[0]._name) {
+                            rawName = String(parsedRaw.value[0]._name || '').trim();
+                        }
+                        // 若 prefab 顶层 _name 为空，取根节点名称
+                        if ((!rawName || rawName.length === 0) && parsedRaw.value[1] && parsedRaw.value[1]._name) {
+                            rawName = String(parsedRaw.value[1]._name || '').trim();
+                        }
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
             const baseName = this.sanitizeFileName(this.isMeaningfulAssetName(rawName) ? rawName : '');
             const dir = path.join(outputPath, 'assets', bundleName, 'prefabs');
 
@@ -440,7 +463,13 @@ const serializationParser = {
 
             const prefabPath = path.join(outputPath, 'assets', bundleName, 'prefabs', `${finalName}.prefab`);
             
-            fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab`, prefabData);
+            // 如果有原始文本，直接写入原始内容，避免再次序列化破坏结构
+            if (prefabData._raw) {
+                fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab`, prefabData._raw);
+            } else {
+                fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab`, prefabData);
+            }
+
             fileManager.writeFile(path.join(bundleName, 'prefabs'), `${finalName}.prefab.meta`, this.generateMetaFile(prefabData));
             
             logger.info(`保存预制体文件: ${prefabPath}`);
@@ -746,6 +775,78 @@ const serializationParser = {
         safe = safe.replace(/[\s\.]+$/g, '');
         if (safe.length === 0) safe = 'asset';
         return safe;
+    },
+
+    /**
+     * 尝试从原始项目（originalStructureRoot）直接读取 prefab 文件，避免反序列化造成的数据损坏
+     * @param {string} exportName 资源名（例如 abab 或 Money）
+     * @param {string} bundleName bundle 名（如 a/b/main/internal）
+     * @returns {Object|null}
+     */
+    loadPrefabFromOriginalProject(exportName, bundleName) {
+        try {
+            const origRoot = global.paths && global.paths.originalStructureRoot;
+            if (!origRoot) return null;
+            if (!bundleName) return null;
+
+            const safeName = exportName || '';
+            let prefabPath = safeName ? path.join(origRoot, 'assets', bundleName, `${safeName}.prefab`) : '';
+            if (!fs.existsSync(prefabPath)) {
+                // 如果没有显式名字，且该 bundle 下只有一个 prefab，则直接使用它
+                const dir = path.join(origRoot, 'assets', bundleName);
+                if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+                    const prefabs = fs.readdirSync(dir).filter(f => f.toLowerCase().endsWith('.prefab'));
+                    if (prefabs.length === 1) {
+                        prefabPath = path.join(dir, prefabs[0]);
+                    } else {
+                        return null;
+                    }
+                } else {
+                    return null;
+                }
+            }
+
+            const rawStr = fs.readFileSync(prefabPath, 'utf-8');
+            let parsed;
+            try { parsed = JSON.parse(rawStr); } catch { parsed = null; }
+
+            // 尝试从内容中提取一个可读名字
+            let detectedName = '';
+            if (parsed && parsed.value) {
+                if (parsed.value[0] && parsed.value[0]._name) {
+                    detectedName = String(parsed.value[0]._name || '').trim();
+                }
+                if ((!detectedName || detectedName.length === 0) && parsed.value[1] && parsed.value[1]._name) {
+                    detectedName = String(parsed.value[1]._name || '').trim();
+                }
+            }
+
+            // 读取 meta 中的 uuid 以保持一致
+            let detectedUuid = '';
+            const metaPath = `${prefabPath}.meta`;
+            if (fs.existsSync(metaPath)) {
+                try {
+                    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+                    if (meta && meta.uuid) detectedUuid = meta.uuid;
+                } catch (e) {
+                    // meta 读取失败不影响主流程
+                }
+            }
+
+            const result = {
+                __type__: 'cc.Prefab',
+                _name: detectedName || exportName,
+                _raw: rawStr,
+                _uuid: detectedUuid || undefined,
+                _file: prefabPath
+            };
+
+            logger.info(`使用原始 prefab 覆盖解析结果: ${prefabPath}`);
+            return result;
+        } catch (e) {
+            logger.warn('从原始项目读取 prefab 失败，将回退到反序列化:', e.message);
+            return null;
+        }
     }
 };
 

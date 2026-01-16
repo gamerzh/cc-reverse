@@ -62,27 +62,46 @@ async function reverseProject(options) {
   // 检查文件是否存在
   validatePaths(projectInfo.resPath, projectInfo.settingsPath, projectInfo.projectPath);
   
-  // 创建临时目录和输出目录
-  const tempPath = path.resolve(outputPath, 'temp');
-  const astPath = path.resolve(tempPath, 'ast');
-  logger.info(`创建临时目录: ${tempPath}`);
-  await mkdir(tempPath, { recursive: true });
-  logger.info(`创建 AST 目录: ${astPath}`);
-  await mkdir(astPath, { recursive: true });
-  logger.info(`创建输出目录: ${outputPath}`);
-  await mkdir(outputPath, { recursive: true });
-  logger.info('所有目录创建完成');
   
-  // 保存全局路径信息
-  global.paths = {
-    source: sourcePath,
-    output: outputPath,
-    res: projectInfo.resPath,
-    temp: tempPath,
-    ast: astPath,
-    originalStructureRoot: originalStructure ? path.resolve(originalStructure) : ''
-  };
+    // 自动检测原始项目的 library 目录（如果未通过 --original-structure 指定）
+    let finalOriginalStructure = originalStructure;
+    if (!finalOriginalStructure) {
+      // 尝试从源项目的父级或上两级找到 library 目录
+      const parentDir = path.dirname(sourcePath);
+      const candidates = [
+        path.join(parentDir, 'library'),
+        path.resolve(parentDir, '..', 'library')
+      ];
+      for (const libPath of candidates) {
+        if (fs.existsSync(libPath) && fs.statSync(libPath).isDirectory()) {
+          // originalStructureRoot 设为项目根（library 的父级），便于直接访问 assets 目录
+          finalOriginalStructure = path.dirname(libPath);
+          logger.info(`自动检测到原始项目 library 目录: ${libPath}`);
+          break;
+        }
+      }
+    }
   
+    // 创建临时目录和输出目录
+    const tempPath = path.resolve(outputPath, 'temp');
+    const astPath = path.resolve(tempPath, 'ast');
+    logger.info(`创建临时目录: ${tempPath}`);
+    await mkdir(tempPath, { recursive: true });
+    logger.info(`创建 AST 目录: ${astPath}`);
+    await mkdir(astPath, { recursive: true });
+    logger.info(`创建输出目录: ${outputPath}`);
+    await mkdir(outputPath, { recursive: true });
+    logger.info('所有目录创建完成');
+  
+    // 保存全局路径信息
+    global.paths = {
+      source: sourcePath,
+      output: outputPath,
+      res: projectInfo.resPath,
+      temp: tempPath,
+      ast: astPath,
+      originalStructureRoot: finalOriginalStructure ? path.resolve(finalOriginalStructure) : ''
+    };
   // 读取项目文件
   try {
     logger.info('读取项目文件...');
