@@ -36,6 +36,7 @@ const resourceProcessor = {
     // 2.4.x bundle config 映射（仅靠编译产物也可恢复可读名称）
     uuidPathMap: new Map(),
     importHashToUuid: new Map(),
+    importHashToPath: new Map(),
     
     /**
      * 处理资源文件
@@ -74,6 +75,7 @@ const resourceProcessor = {
 
         this.uuidPathMap = new Map();
         this.importHashToUuid = new Map();
+        this.importHashToPath = new Map();
     },
 
     /**
@@ -84,6 +86,7 @@ const resourceProcessor = {
         try {
             const map = new Map();
             const importHashToUuid = new Map();
+            const importHashToPath = new Map(); // 新增：import hash -> asset name
             for (const filePath of this.fileList) {
                 const ext = path.extname(filePath).toLowerCase();
                 if (ext !== '.json') continue;
@@ -118,12 +121,15 @@ const resourceProcessor = {
                 };
 
                 const paths = json.paths;
+                const pathsByIndex = new Map(); // 建立 index -> name 的映射
+                
                 if (Array.isArray(paths)) {
                     for (let i = 0; i < paths.length; i++) {
                         const uuid = decode(uuids[i]);
                         const item = paths[i];
                         const p = Array.isArray(item) ? item[0] : item;
                         record(uuid, p);
+                        pathsByIndex.set(i, p);
                     }
                 } else if (paths && typeof paths === 'object') {
                     for (const k of Object.keys(paths)) {
@@ -133,6 +139,7 @@ const resourceProcessor = {
                         const item = paths[k];
                         const p = Array.isArray(item) ? item[0] : item;
                         record(uuid, p);
+                        pathsByIndex.set(idx, p);
                     }
                 }
 
@@ -144,6 +151,7 @@ const resourceProcessor = {
                         const uuid = decode(uuids[idx]);
                         const p = json.scenes[k];
                         record(uuid, p);
+                        pathsByIndex.set(idx, p);
                     }
                 }
 
@@ -184,10 +192,19 @@ const resourceProcessor = {
                         importHashToUuid.set(hash, { uuid, bundle: bundleName });
                     }
 
+                    // 同时记录 importHash -> path
+                    const p = pathsByIndex.get(i);
+                    if (p && !importHashToPath.has(hash)) {
+                        importHashToPath.set(hash, { path: p, bundle: bundleName });
+                    }
+
                     // 有些构建的 import 文件名会拼接 native hash：<import>.<native>
                     const n = nativeByIdx.get(i);
                     if (n && !importHashToUuid.has(`${hash}.${n}`)) {
                         importHashToUuid.set(`${hash}.${n}`, { uuid, bundle: bundleName });
+                    }
+                    if (n && p && !importHashToPath.has(`${hash}.${n}`)) {
+                        importHashToPath.set(`${hash}.${n}`, { path: p, bundle: bundleName });
                     }
                 };
 
@@ -204,15 +221,79 @@ const resourceProcessor = {
                         }
                     }
                 }
+
+                // 处理 packs 字段：packs[importHash] = [assetIndex1, assetIndex2, ...]
+                // 这样可以通过 import 文件名直接查找到该文件包含的所有资源名称
+                if (json.packs && typeof json.packs === 'object') {
+                    for (const importHash of Object.keys(json.packs)) {
+                        const indices = json.packs[importHash];
+                        if (!Array.isArray(indices)) continue;
+                        
+                        // 为这个 import 文件建立所包含的所有资源名称列表
+                        const assetNames = [];
+                        const typesArray = Array.isArray(json.types) ? json.types : [];
+                        
+                        // 首先查找 cc.Prefab 类型的资源
+                        let prefabName = '';
+                        let firstAssetPath = '';
+                        
+                        for (const idx of indices) {
+                            const i = Number(idx);
+                            if (!Number.isFinite(i)) continue;
+                            const p = pathsByIndex.get(i);
+                            if (!p) continue;
+                            
+                            if (!firstAssetPath) {
+                                firstAssetPath = p; // 记录第一个资源作为备选
+                            }
+                            
+                            // 检查这个资源的类型
+                            const item = Array.isArray(paths[i]) ? paths[i] : paths[String(i)];
+                            if (Array.isArray(item)) {
+                                const typeIdx = item[1]; // paths[i] = [name, typeIndex, ...] 格式
+                                if (typeof typeIdx === 'number' && typeIdx < typesArray.length) {
+                                    const typeStr = typesArray[typeIdx];
+                                    if (typeStr === 'cc.Prefab' && !prefabName) {
+                                        prefabName = p; // 找到了 prefab，记录其名称
+                                    }
+                                }
+                            }
+                            
+                            assetNames.push(p);
+                            
+                            // 也可以为 importHash.nativeHash 格式建立映射
+                            const n = nativeByIdx.get(i);
+                            if (n) {
+                                // importHash.nativeHash 对应的资源名
+                                const key = `${importHash}.${n}`;
+                                if (!importHashToPath.has(key)) {
+                                    importHashToPath.set(key, { path: p, bundle: bundleName });
+                                }
+                            }
+                        }
+                        
+                        // 为 importHash 建立完整的资源名列表，优先使用 prefab，其次使用第一个资源
+                        if (assetNames.length > 0 && !importHashToPath.has(importHash)) {
+                            importHashToPath.set(importHash, { 
+                                paths: assetNames,
+                                path: prefabName || firstAssetPath, // 主资源优先为 prefab，其次为第一个
+                                bundle: bundleName 
+                            });
+                        }
+                    }
+                }
             }
 
             this.uuidPathMap = map;
             global.uuidPathMap = map;
             this.importHashToUuid = importHashToUuid;
             global.importHashToUuid = importHashToUuid;
+            this.importHashToPath = importHashToPath;
+            global.importHashToPath = importHashToPath;
             if (global.verbose) {
                 logger.info(`[命名映射] 从 bundle config 建立 uuid->path 映射数量: ${map.size}`);
                 logger.info(`[命名映射] 从 bundle config 建立 importHash->uuid 映射数量: ${importHashToUuid.size}`);
+                logger.info(`[命名映射] 从 bundle config 建立 importHash->path 映射数量: ${importHashToPath.size}`);
             }
         } catch (err) {
             logger.warn('从 bundle config 构建 uuid->path 映射失败:', err);
@@ -220,6 +301,8 @@ const resourceProcessor = {
             global.uuidPathMap = this.uuidPathMap;
             this.importHashToUuid = new Map();
             global.importHashToUuid = this.importHashToUuid;
+            this.importHashToPath = new Map();
+            global.importHashToPath = this.importHashToPath;
         }
     },
     
@@ -281,10 +364,31 @@ const resourceProcessor = {
             if (path.extname(currPath) === '.json') {
                 try {
                     const currFile = await readFile(currPath);
-                    let key = path.basename(currPath).split('.')[0];
+                    const fileName = path.basename(currPath);
+                    let key = fileName.split('.')[0];
+                    
+                    // 如果是 import 文件，尝试从 config packs 映射中推导导出名
+                    let importHash = null;
+                    const isImportFile = currPath.includes(path.sep + 'import' + path.sep);
+                    if (isImportFile && global.importHashToPath) {
+                        // import 文件名格式如 "0b55cf59e.a065f.json" 或 "0adea70c0.json"
+                        // 提取 import hash（第一个点之前的部分，可能也包含后续的 native hash）
+                        const match = fileName.match(/^([a-f0-9]+(?:\.[a-f0-9]+)?)\./i);
+                        if (match) {
+                            importHash = match[1];
+                            const derivedName = serializationParser.deriveNameFromImportHash(importHash);
+                            if (derivedName) {
+                                if (global.verbose) {
+                                    logger.debug(`[命名] 从 import hash ${importHash} 推导名称: ${derivedName}`);
+                                }
+                                key = derivedName;
+                            }
+                        }
+                    }
+                    
                     const data = JSON.parse(currFile);
                     this.nodeData = data;
-                    await this.processData(key, data);
+                    await this.processData(key, data, { importHash, filePath: currPath });
                 } catch (err) {
                     logger.error(`处理 JSON 文件 ${currPath} 时出错:`, err);
                 }
@@ -308,15 +412,16 @@ const resourceProcessor = {
      * 处理数据
      * @param {string} key 键名
      * @param {Object} data 要处理的数据
+     * @param {Object} options 选项，包含 importHash、filePath 等
      */
-    async processData(key, data) {
+    async processData(key, data, options = {}) {
         if (!global.settings || this.isEmptyObject(global.settings)) {
             logger.warn('全局设置为空，跳过数据处理');
             return;
         }
         
         const processedData = await this.revealData(data);
-        this.writeProcessedData(processedData, key);
+        this.writeProcessedData(processedData, key, options);
     },
     
     /**
@@ -333,8 +438,9 @@ const resourceProcessor = {
      * 写入处理后的数据
      * @param {Object} data 处理后的数据
      * @param {string} key 键名
+     * @param {Object} options 选项，包含 importHash、filePath 等
      */
-    writeProcessedData(data, key) {
+    writeProcessedData(data, key, options = {}) {
         if (data === null || data === undefined) {
             return;
         }
@@ -349,7 +455,7 @@ const resourceProcessor = {
                 
                 const type = data[i]['__type__'];
                 if (Array.isArray(data[i])) {
-                    this.writeProcessedData(data[i], key);
+                    this.writeProcessedData(data[i], key, options);
                 } else if (type) {
                     this.processTypeObject(type, data, i, key);
                 }
@@ -811,6 +917,7 @@ const resourceProcessor = {
 
             // 2.4.x 常见：import 文件名可能是 md5，需要通过 config.versions.import 反查 uuid
             let assetId = fileKey;
+            let derivedName = ''; // 从 importHash 推导出的名称
             const importMap = global.importHashToUuid;
             if (importMap && typeof importMap.get === 'function') {
                 const candidates = [fileKey];
@@ -823,6 +930,11 @@ const resourceProcessor = {
                     if (hit && hit.uuid) {
                         assetId = hit.uuid;
                         break;
+                    }
+                    
+                    // 同时尝试从 importHash 推导名称
+                    if (!derivedName) {
+                        derivedName = serializationParser.deriveNameFromImportHash(cand);
                     }
                 }
             }
@@ -839,6 +951,7 @@ const resourceProcessor = {
                     // 保存预制体文件
                     // 记录源文件名用于避免重名覆盖
                     parsedData._file = filePath;
+                    parsedData._derivedName = derivedName; // 传递从 importHash 推导出的名称
                     serializationParser.savePrefabFile(parsedData, global.paths.output, bundleName);
                 } else if (parsedData.__type__ === 'cc.SpriteAtlas') {
                     // 处理精灵图集，记录必要上下文，供转换器输出

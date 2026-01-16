@@ -424,6 +424,12 @@ const serializationParser = {
     savePrefabFile(prefabData, outputPath, bundleName) {
         try {
             let rawName = (typeof prefabData._name === 'string') ? prefabData._name : '';
+            
+            // 首先尝试使用从 importHash 推导出的名称
+            if (!rawName && prefabData._derivedName) {
+                rawName = prefabData._derivedName;
+            }
+            
             // 如果没有名字但有原始文本，尝试从原始文本解析 _name
             if ((!rawName || rawName.length === 0) && typeof prefabData._raw === 'string') {
                 try {
@@ -702,6 +708,68 @@ const serializationParser = {
                 logger.debug(`[命名诊断] ✗ 异常: ${e.message}`);
             }
             return '';
+        }
+    },
+
+    /**
+     * 从编译产物的 bundle config packs 映射中通过 import hash 推导资源名称
+     * @param {string} importHash 如 "0b55cf59e" 或 "0adea70c0.a065f" 
+     * @returns {string} 资源名称，如 "abab" 或 "winter"
+     */
+    deriveNameFromImportHash(importHash) {
+        try {
+            if (!importHash || typeof importHash !== 'string') return '';
+            
+            const map = global.importHashToPath;
+            if (!map || typeof map.get !== 'function') return '';
+            
+            const hit = map.get(importHash);
+            if (!hit) return '';
+            
+            // 如果 hit.paths 有多个资源，取第一个作为主资源
+            const pathStr = hit.path || (Array.isArray(hit.paths) ? hit.paths[0] : '');
+            if (!pathStr) return '';
+            
+            const base = path.basename(String(pathStr));
+            const name = base.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+            return name || '';
+        } catch {
+            return '';
+        }
+    },
+
+    /**
+     * 从编译产物的 bundle config 中通过 import hash 推导所有资源名称
+     * @param {string} importHash 如 "0b55cf59e"
+     * @returns {Array<string>} 资源名称数组
+     */
+    deriveNamesFromImportHash(importHash) {
+        try {
+            if (!importHash || typeof importHash !== 'string') return [];
+            
+            const map = global.importHashToPath;
+            if (!map || typeof map.get !== 'function') return [];
+            
+            const hit = map.get(importHash);
+            if (!hit) return [];
+            
+            if (Array.isArray(hit.paths)) {
+                return hit.paths.map(p => {
+                    const base = path.basename(String(p));
+                    return base.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                }).filter(n => n);
+            }
+            
+            const pathStr = hit.path;
+            if (pathStr) {
+                const base = path.basename(String(pathStr));
+                const name = base.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                return name ? [name] : [];
+            }
+            
+            return [];
+        } catch {
+            return [];
         }
     },
 
