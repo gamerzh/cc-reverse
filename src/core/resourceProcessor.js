@@ -850,7 +850,49 @@ const resourceProcessor = {
         }
         
         const resourceDir = this.getResourceDirectory(fileName, ext);
+        // 资源 key 可能为 "<uuid>.<nativeHash>"，取前半部分作为真正的 UUID
         const uuid = fileKey;
+        const uuidStem = (typeof uuid === 'string' && uuid.includes('.')) ? uuid.split('.')[0] : uuid;
+        
+        // 尝试从 importHashToPath 推导资源名称（针对纹理和其他资源）
+        let derivedFileName = fileName;
+        if (global.importHashToPath && typeof global.importHashToPath.get === 'function') {
+            const candidates = [fileKey];
+            if (typeof fileKey === 'string' && fileKey.includes('.')) {
+                candidates.push(fileKey.split('.')[0]);
+            }
+            
+            for (const cand of candidates) {
+                const hit = global.importHashToPath.get(cand);
+                if (hit && hit.path) {
+                    // 从推导的路径提取文件名并保留扩展名
+                    const baseName = path.basename(String(hit.path));
+                    const nameWithoutExt = baseName.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                    if (nameWithoutExt && nameWithoutExt.length > 0) {
+                        derivedFileName = nameWithoutExt + ext;
+                        if (global.verbose) {
+                            logger.debug(`[命名] 资源 ${fileKey} -> ${derivedFileName}`);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 其次尝试通过 uuid->path 映射恢复名称（适用于 native 纹理等非 import 资源）
+        if (derivedFileName === fileName && global.uuidPathMap && typeof global.uuidPathMap.get === 'function') {
+            const hit = global.uuidPathMap.get(uuidStem);
+            if (hit && hit.path) {
+                const baseName = path.basename(String(hit.path));
+                const nameWithoutExt = baseName.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                if (nameWithoutExt && nameWithoutExt.length > 0) {
+                    derivedFileName = nameWithoutExt + ext;
+                    if (global.verbose) {
+                        logger.debug(`[命名] UUID 映射 ${uuidStem} -> ${derivedFileName}`);
+                    }
+                }
+            }
+        }
         
         // 检查项目结构中是否存在该bundle
         const bundleExists = projectStructure.bundles && projectStructure.bundles[bundleName];
@@ -863,15 +905,15 @@ const resourceProcessor = {
         if (dirExists) {
             // 如果bundle在原始目录结构中存在，保持原始结构
             const originalStructure = this.detectOriginalStructure(projectStructure.directories, bundleName);
-            targetPath = path.join(global.paths.output, 'assets', ...originalStructure, resourceDir, fileName);
+            targetPath = path.join(global.paths.output, 'assets', ...originalStructure, resourceDir, derivedFileName);
             metaDir = path.join(...originalStructure, resourceDir);
         } else if (bundleExists) {
             // 如果bundle在settings中存在但目录不存在，使用bundle结构
-            targetPath = path.join(global.paths.output, 'assets', bundleName, resourceDir, fileName);
+            targetPath = path.join(global.paths.output, 'assets', bundleName, resourceDir, derivedFileName);
             metaDir = path.join(bundleName, resourceDir);
         } else {
             // 否则使用默认结构
-            targetPath = path.join(global.paths.output, 'assets', 'resources', bundleName, resourceDir, fileName);
+            targetPath = path.join(global.paths.output, 'assets', 'resources', bundleName, resourceDir, derivedFileName);
             metaDir = path.join('resources', bundleName, resourceDir);
         }
         
@@ -883,14 +925,14 @@ const resourceProcessor = {
         if (resourceDir !== 'other') {
             const metaData = {
                 "ver": "1.2.7",
-                "uuid": uuid,
+                "uuid": uuidStem,
                 "optimizationPolicy": "AUTO",
                 "asyncLoadAssets": false,
                 "readonly": false,
                 "subMetas": {}
             };
             
-            fileManager.writeFile(metaDir, fileName + ".meta", metaData);
+            fileManager.writeFile(metaDir, derivedFileName + ".meta", metaData);
         }
         
         // 分类处理
