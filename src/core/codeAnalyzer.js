@@ -22,6 +22,8 @@ const appendFile = promisify(fs.appendFile);
  * 代码分析器模块
  */
 const codeAnalyzer = {
+    // 记录模块的 uuid 与可读名，便于还原脚本目录
+    moduleInfo: new Map(),
     /**
      * 分析编译源代码
      * @param {string} code 要分析的源代码
@@ -43,6 +45,9 @@ const codeAnalyzer = {
                 ]
             });
             const values = [];
+            // 本次分析的模块信息缓存
+            this.moduleInfo = new Map();
+            const moduleInfo = this.moduleInfo;
             
             // 2. 定义访问者函数查找值
             const findValue = {
@@ -98,7 +103,13 @@ const codeAnalyzer = {
             };
             
             // 辅助函数 - 生成元数据文件
-            const generateMetaFiles = function(node) {
+            const recordModuleInfo = function(moduleName, payload = {}) {
+                if (!moduleName) return;
+                const prev = moduleInfo.get(moduleName) || {};
+                moduleInfo.set(moduleName, { ...prev, ...payload });
+            };
+
+            const generateMetaFiles = function(node, moduleName) {
                 if (node.type == 'ExpressionStatement') {
                     // 处理表达式数组
                     if (node.expression.expressions) {
@@ -107,12 +118,9 @@ const codeAnalyzer = {
                                 if (a.arguments[1]) {
                                     if (a.arguments[1].type && a.arguments[1].type == "StringLiteral" && a.arguments[1].value != "__esModule") {
                                         const arg2 = a.arguments[2];
+                                        const uuidRaw = a.arguments[1].value;
                                         if (!arg2 || !arg2.value || typeof arg2.value !== 'string') continue;
-                                        let filename = arg2.value.split('.')[0] + ".ts";
-                                        
-                                        let fileMap = new Set();
-                                        fileMap[filename] = uuidUtils.decodeUuid(uuidUtils.original_uuid(a.arguments[1].value));
-                                        fileManager.createMetaFile(fileMap);
+                                        recordModuleInfo(moduleName, { uuid: uuidRaw, scriptName: arg2.value });
                                     }
                                 }
                             }
@@ -124,11 +132,9 @@ const codeAnalyzer = {
                         if (node.expression.arguments[1]) {                                        
                             if (node.expression.arguments[1].type && node.expression.arguments[1].type == "StringLiteral" && node.expression.arguments[1].value != "__esModule") {
                                 const arg2 = node.expression.arguments[2];
+                                const uuidRaw = node.expression.arguments[1].value;
                                 if (!arg2 || !arg2.value || typeof arg2.value !== 'string') return;
-                                let filename = arg2.value.split('.')[0] + ".ts";
-                                let fileMap = new Set();
-                                fileMap[filename] = uuidUtils.decodeUuid(uuidUtils.original_uuid(node.expression.arguments[1].value));
-                                fileManager.createMetaFile(fileMap);
+                                recordModuleInfo(moduleName, { uuid: uuidRaw, scriptName: arg2.value });
                             }
                         }
                     }
@@ -197,7 +203,7 @@ const codeAnalyzer = {
                 if (!node || !node.value || !node.value.elements || !node.value.elements[0] || !node.value.elements[0].body || !node.value.elements[0].body.body) return;
                 for (let i of node.value.elements[0].body.body) {
                     // 生成元数据文件
-                    generateMetaFiles(i);
+                    generateMetaFiles(i, value);
                     
                     // 处理导入路径
                     processImportPaths(i);
@@ -228,7 +234,7 @@ const codeAnalyzer = {
                                     // 同步处理节点元素
                                     for (let i of first.body.body) {
                                         // 生成元数据文件
-                                        generateMetaFiles(i);
+                                        generateMetaFiles(i, value);
                                         
                                         // 处理导入路径
                                         processImportPaths(i);
@@ -300,24 +306,23 @@ const codeAnalyzer = {
         try {
             // 生成代码
             let res = generator.default(ast, {})["code"];
-            const scriptsDir = path.join(global.paths.output, 'assets/Scripts');
-            const outputPath = path.join(scriptsDir, `${filename}.ts`);
-            
+            const outputInfo = this.resolveScriptOutput(filename);
+
             // 确保输出目录存在
-            await mkdir(path.dirname(outputPath), { recursive: true });
-            
+            await mkdir(path.dirname(outputInfo.outputPath), { recursive: true });
+
             // 写入生成的代码
             await appendFile(
-                outputPath, 
-                JSON.parse(JSON.stringify(res.slice(1, res.length - 1))), 
+                outputInfo.outputPath,
+                JSON.parse(JSON.stringify(res.slice(1, res.length - 1))),
                 { encoding: "utf-8", flag: 'w+' }
             );
-            
-            // 生成元数据文件
-            this.generateMetaFile(filename);
-            
+
+            // 生成元数据文件（路径与脚本一致）
+            this.generateMetaFile(outputInfo.baseName, outputInfo.metaDir, outputInfo.uuid);
+
             if (global.verbose) {
-                logger.debug(`生成代码文件: ${filename}.ts`);
+                logger.debug(`生成代码文件: ${outputInfo.outputPath}`);
             }
         } catch (err) {
             logger.error(`生成代码 ${filename} 时出错:`, err);
@@ -326,12 +331,16 @@ const codeAnalyzer = {
     
     /**
      * 生成元数据文件
-     * @param {string} filename 文件名
+     * @param {string} baseName 文件名（含扩展名）
+     * @param {string} metaDir 相对于 assets 的目录
+     * @param {string} uuidCandidate 源 uuid
      */
-    generateMetaFile(filename) {
+    generateMetaFile(baseName, metaDir, uuidCandidate) {
+        const metaUuid = this.resolveMetaUuid(uuidCandidate, baseName);
+        const targetDir = metaDir && metaDir !== '.' ? metaDir : 'Scripts';
         const meta = {
             "ver": "1.0.8",
-            "uuid": uuidUtils.decodeUuid(uuidUtils.original_uuid(filename)),
+            "uuid": metaUuid,
             "isPlugin": false,
             "loadPluginInWeb": true,
             "loadPluginInNative": true,
@@ -339,7 +348,128 @@ const codeAnalyzer = {
             "subMetas": {}
         };
         
-        fileManager.writeFile("Scripts", filename + ".ts.meta", meta);
+        fileManager.writeFile(targetDir, baseName + ".meta", meta);
+    },
+
+    /**
+     * 依据 _CCSettings.rawAssets 或原始信息恢复脚本输出路径
+     * @param {string} filename 模块名（bundle 内部 key）
+     * @returns {Object} 输出信息
+     */
+    resolveScriptOutput(filename) {
+        const info = (this.moduleInfo && this.moduleInfo.get(filename)) || {};
+        const uuidCandidate = info.uuid;
+        const scriptName = info.scriptName || filename;
+
+        // 尝试从 settings 中找到原始路径
+        const settingsPath = this.findScriptPathFromSettings(uuidCandidate);
+        let rel = settingsPath || `Scripts/${scriptName}`;
+        rel = this.normalizeScriptRelativePath(rel);
+
+        return {
+            outputPath: path.join(global.paths.output, 'assets', ...rel.split('/')),
+            metaDir: path.dirname(rel),
+            baseName: path.basename(rel),
+            uuid: uuidCandidate
+        };
+    },
+
+    /**
+     * 查找 _CCSettings.rawAssets 中脚本 uuid 对应的路径
+     */
+    findScriptPathFromSettings(uuidCandidate) {
+        const settings = (global.settings && (global.settings._CCSettings || global.settings.CCSettings)) || {};
+        const rawAssets = settings.rawAssets || {};
+        const pools = [];
+        if (rawAssets.assets) pools.push(rawAssets.assets);
+        if (rawAssets.internal) pools.push(rawAssets.internal);
+
+        const ids = this.expandUuidCandidates(uuidCandidate);
+        for (const pool of pools) {
+            for (const id of ids) {
+                const entry = pool && pool[id];
+                const url = this.extractAssetUrl(entry);
+                if (url) return url;
+            }
+        }
+        return '';
+    },
+
+    /**
+     * 将 url 统一为 assets 相对路径并添加 .ts 扩展名
+     */
+    normalizeScriptRelativePath(rel) {
+        if (!rel) rel = 'Scripts/unknown';
+        rel = rel.replace(/^db:\/\//i, '');
+        if (rel.toLowerCase().startsWith('assets/')) {
+            rel = rel.slice(7);
+        }
+        rel = rel.replace(/^\/+/, '').replace(/\\/g, '/');
+        if (!/\.ts$/i.test(rel) && !/\.js$/i.test(rel)) {
+            rel = `${rel}.ts`;
+        }
+        // 若缺少目录信息，则放入 Scripts 根目录
+        if (!rel.includes('/')) {
+            rel = path.join('Scripts', rel).replace(/\\/g, '/');
+        }
+        return rel;
+    },
+
+    /**
+     * 从 rawAssets 条目提取 URL
+     */
+    extractAssetUrl(entry) {
+        if (!entry) return '';
+        if (Array.isArray(entry)) return entry[0] || '';
+        if (typeof entry === 'object') return entry.url || entry.path || entry.name || '';
+        return '';
+    },
+
+    /**
+     * 扩展 uuid 的多种表示，以便匹配 settings 键
+     */
+    expandUuidCandidates(id) {
+        const set = new Set();
+        if (id) set.add(id);
+        try {
+            const orig = uuidUtils.original_uuid(id);
+            if (orig) set.add(orig);
+        } catch (e) {
+            // 忽略转换异常
+        }
+        try {
+            const decoded = uuidUtils.decodeUuid(id);
+            if (decoded) set.add(decoded);
+        } catch (e) {
+            // 忽略转换异常
+        }
+        return Array.from(set).filter(Boolean);
+    },
+
+    /**
+     * 解析 meta uuid（优先使用 cc._RF 提供的 uuid）
+     */
+    resolveMetaUuid(uuidCandidate, baseName) {
+        const ids = this.expandUuidCandidates(uuidCandidate);
+        for (const id of ids) {
+            try {
+                const decoded = uuidUtils.decodeUuid(id);
+                if (decoded) return decoded;
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        // fallback：尝试用文件名推导
+        try {
+            const stem = baseName.replace(/\.(ts|js)$/i, '');
+            const decoded = uuidUtils.decodeUuid(uuidUtils.original_uuid(stem));
+            if (decoded) return decoded;
+        } catch (e) {
+            // ignore
+        }
+
+        return uuidUtils.generateUuid();
     }
 };
 
