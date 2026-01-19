@@ -74,8 +74,8 @@ const serializationParser = {
                 }
                 
                 // 检查是否是场景文件
-                // 只有当明确标记为场景文件时才处理为场景
-                const isSceneFile = data[9] === true && Array.isArray(types) && types.some(type => 
+                // 只要类型中包含 cc.SceneAsset，就认为是场景文件（即使 isScene 标志不存在）
+                const isSceneFile = Array.isArray(types) && types.some(type => 
                     (typeof type === 'string' && type.includes('cc.SceneAsset')) ||
                     (typeof type === 'object' && includesTypeDeep(type, 'cc.SceneAsset'))
                 );
@@ -400,14 +400,75 @@ const serializationParser = {
      * @param {Object} sceneData 场景数据
      * @param {string} outputPath 输出路径
      * @param {string} bundleName bundle名称
+     * @param {string} derivedPath 从配置推导出的资源路径（如 "db://assets/StartScene.fire" -> "assets/StartScene.fire"）
+     * @param {string} derivedName 从配置推导出的场景名称
      */
-    saveSceneFile(sceneData, outputPath, bundleName) {
+    saveSceneFile(sceneData, outputPath, bundleName, derivedPath, derivedName) {
         try {
-            const sceneName = this.sanitizeFileName(sceneData._name || 'scene');
-            const scenePath = path.join(outputPath, 'assets', bundleName, 'scenes', `${sceneName}.fire`);
+            let sceneName = derivedName;
+            let sceneDir = 'scenes';
+            let useDirectAssets = false; // 是否直接写到 assets 目录，而不是 bundle 子目录
             
-            fileManager.writeFile(path.join(bundleName, 'scenes'), `${sceneName}.fire`, sceneData);
-            fileManager.writeFile(path.join(bundleName, 'scenes'), `${sceneName}.fire.meta`, this.generateMetaFile(sceneData));
+            // 如果有完整路径，从中提取目录和文件名
+            if (derivedPath) {
+                // derivedPath 可能是 "assets/StartScene.fire" 或 "gameScene/game.fire"
+                let pathToProcess = derivedPath;
+                
+                // 如果包含 "assets/"，说明是绝对路径，需要特殊处理
+                if (pathToProcess.startsWith('assets/')) {
+                    useDirectAssets = true;
+                    pathToProcess = pathToProcess.substring(7); // 去掉 "assets/"
+                    
+                    const dir = path.dirname(pathToProcess);
+                    const baseName = path.basename(pathToProcess, path.extname(pathToProcess));
+                    
+                    if (dir && dir !== '.') {
+                        sceneDir = dir;
+                        sceneName = baseName;
+                    } else {
+                        sceneName = baseName;
+                        sceneDir = '';
+                    }
+                } else {
+                    // 相对路径的情况
+                    const dir = path.dirname(pathToProcess);
+                    const baseName = path.basename(pathToProcess, path.extname(pathToProcess));
+                    
+                    if (dir && dir !== '.') {
+                        sceneDir = dir;
+                        sceneName = baseName;
+                    } else {
+                        sceneName = baseName;
+                        sceneDir = '';
+                    }
+                }
+            }
+            
+            if (!sceneName) {
+                sceneName = this.sanitizeFileName(sceneData._name || 'scene');
+            }
+            
+            // 更新场景数据的 _name 为正确的场景名称
+            if (sceneName && sceneData) {
+                sceneData._name = sceneName;
+            }
+            
+            // 构建输出路径
+            let writeDir;
+            if (useDirectAssets) {
+                // 直接写到 assets 目录
+                writeDir = sceneDir ? path.join('', sceneDir) : '';
+            } else {
+                // 写到 assets/bundleName/sceneDir
+                writeDir = sceneDir ? path.join(bundleName, sceneDir) : bundleName;
+            }
+            
+            // 完整的输出路径用于日志
+            const outputDir = path.join(outputPath, 'assets', writeDir);
+            const scenePath = path.join(outputDir, `${sceneName}.fire`);
+            
+            fileManager.writeFile(writeDir, `${sceneName}.fire`, sceneData);
+            fileManager.writeFile(writeDir, `${sceneName}.fire.meta`, this.generateMetaFile(sceneData));
             
             logger.info(`保存场景文件: ${scenePath}`);
         } catch (err) {
@@ -451,6 +512,15 @@ const serializationParser = {
             // 目录选择：优先使用从配置推导出的相对目录（若有），否则直接放在 bundle 根目录
             const derivedPath = (typeof prefabData._derivedPath === 'string') ? prefabData._derivedPath : '';
             const derivedSubdir = derivedPath ? path.dirname(derivedPath) : '';
+            
+            if (global.verbose) {
+                logger.debug(`[savePrefabFile] ${baseName || 'unknown'}:`);
+                logger.debug(`  _derivedPath: '${derivedPath}'`);
+                logger.debug(`  _derivedName: '${prefabData._derivedName}'`);
+                logger.debug(`  derivedSubdir: '${derivedSubdir}'`);
+                logger.debug(`  bundle: '${bundleName}'`);
+            }
+            
             const dirParts = [];
             if (derivedSubdir && derivedSubdir !== '.' && derivedSubdir !== '') {
                 dirParts.push(...derivedSubdir.split(/[\/]/));

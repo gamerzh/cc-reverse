@@ -1,0 +1,41 @@
+Fix: Correct prefab file placement in bundle subdirectories (#issue)
+
+Problem:
+- Prefab files were placed in bundle root directory (e.g., assets/a/)
+- Instead of their configured subdirectory (e.g., assets/a/003/)
+- Even though bundle config contained correct paths (e.g., "003/abab - 001")
+
+Root Cause:
+- processSerializedFile() did not pass subdirectory information to savePrefabFile()
+- No UUID → resource path mapping lookup to extract directory hierarchy
+
+Solution:
+1. Enhanced processSerializedFile() to:
+   - Look up UUID in global.uuidPathMap
+   - Extract subdirectory from mapped path
+   - Pass subdirectory info via _derivedPath to savePrefabFile()
+
+2. Enhanced savePrefabFile() to:
+   - Extract subdirectory from _derivedPath
+   - Create output directory with proper hierarchy
+   - Log routing decisions in verbose mode
+
+Changes:
+- src/core/resourceProcessor.js: processSerializedFile() method
+  - Added uuidPathMap lookup (primary path)
+  - Improved fallback chain (importHashToPath → bundlePathsMap)
+  - Added verbose logging for file routing
+  
+- src/core/serializationParser.js: savePrefabFile() method
+  - Using _derivedPath to extract subdirectory
+  - Added verbose logging for directory extraction
+
+Example:
+Before: assets/a/abab - 001.prefab (❌ wrong)
+After:  assets/a/003/abab - 001.prefab (✓ correct)
+
+Verification:
+- Bundle config shows: "003/abab - 001" → UUID 4fyraXpfdGZYZ9t+2ao7YI
+- Import hash mapping: "83dee" → UUID 4fyraXpfdGZYZ9t+2ao7YI  
+- UUID path mapping: 4fyraXpfdGZYZ9t+2ao7YI → "003/abab - 001"
+- With fix: subdirectory "003" extracted and used in output path

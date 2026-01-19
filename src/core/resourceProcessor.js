@@ -87,6 +87,7 @@ const resourceProcessor = {
             const map = new Map();
             const importHashToUuid = new Map();
             const importHashToPath = new Map(); // 新增：import hash -> asset name
+            const importHashToSceneIndex = new Map(); // 新增：import hash -> scene index（用于场景文件）
             for (const filePath of this.fileList) {
                 const ext = path.extname(filePath).toLowerCase();
                 if (ext !== '.json') continue;
@@ -144,12 +145,28 @@ const resourceProcessor = {
                 }
 
                 // scenes 表有时单独存在
+                // 格式可能是：{"db://assets/Scene.fire": 0} 或 {0: "db://assets/Scene.fire"}
                 if (json.scenes && typeof json.scenes === 'object') {
-                    for (const k of Object.keys(json.scenes)) {
-                        const idx = Number(k);
-                        if (!Number.isFinite(idx)) continue;
+                    for (const [k, v] of Object.entries(json.scenes)) {
+                        // 检查是路径->索引 还是 索引->路径的格式
+                        let idx, scenePath;
+                        if (typeof k === 'string' && k.startsWith('db://')) {
+                            // 格式：{"db://assets/Scene.fire": 0}，键是路径，值是索引
+                            scenePath = k;
+                            idx = typeof v === 'number' ? v : Number(v);
+                        } else {
+                            // 格式：{0: "db://assets/Scene.fire"}，键是索引，值是路径
+                            idx = Number(k);
+                            scenePath = v;
+                        }
+                        
+                        if (!Number.isFinite(idx) || !scenePath) continue;
+                        // 去掉 db:// 前缀
+                        let p = scenePath;
+                        if (p.startsWith('db://')) {
+                            p = p.substring(5); // 去掉 "db://"
+                        }
                         const uuid = decode(uuids[idx]);
-                        const p = json.scenes[k];
                         record(uuid, p);
                         pathsByIndex.set(idx, p);
                     }
@@ -224,6 +241,21 @@ const resourceProcessor = {
 
                 // 处理 packs 字段：packs[importHash] = [assetIndex1, assetIndex2, ...]
                 // 这样可以通过 import 文件名直接查找到该文件包含的所有资源名称
+                const sceneIndices = new Set(); // 存储所有场景的索引
+                if (json.scenes && typeof json.scenes === 'object') {
+                    for (const [k, v] of Object.entries(json.scenes)) {
+                        let idx;
+                        if (typeof k === 'string' && k.startsWith('db://')) {
+                            idx = typeof v === 'number' ? v : Number(v);
+                        } else {
+                            idx = Number(k);
+                        }
+                        if (Number.isFinite(idx)) {
+                            sceneIndices.add(idx);
+                        }
+                    }
+                }
+                
                 if (json.packs && typeof json.packs === 'object') {
                     for (const importHash of Object.keys(json.packs)) {
                         const indices = json.packs[importHash];
@@ -233,8 +265,10 @@ const resourceProcessor = {
                         const assetNames = [];
                         const typesArray = Array.isArray(json.types) ? json.types : [];
                         
-                        // 首先查找 cc.Prefab 类型的资源
+                        // 首先查找 cc.Prefab 类型的资源，以及场景资源
                         let prefabName = '';
+                        let sceneIndex = -1;
+                        let scenePathInPack = '';
                         let firstAssetPath = '';
                         
                         for (const idx of indices) {
@@ -259,6 +293,12 @@ const resourceProcessor = {
                                 }
                             }
                             
+                            // 检查这个索引是否是场景索引
+                            if (sceneIndices.has(i) && sceneIndex === -1) {
+                                sceneIndex = i;
+                                scenePathInPack = p;
+                            }
+                            
                             assetNames.push(p);
                             
                             // 也可以为 importHash.nativeHash 格式建立映射
@@ -280,6 +320,15 @@ const resourceProcessor = {
                                 bundle: bundleName 
                             });
                         }
+                        
+                        // 如果发现场景，记录到特殊映射中
+                        if (sceneIndex !== -1 && scenePathInPack) {
+                            importHashToSceneIndex.set(importHash, {
+                                index: sceneIndex,
+                                path: scenePathInPack,
+                                bundle: bundleName
+                            });
+                        }
                     }
                 }
             }
@@ -290,10 +339,19 @@ const resourceProcessor = {
             global.importHashToUuid = importHashToUuid;
             this.importHashToPath = importHashToPath;
             global.importHashToPath = importHashToPath;
+            this.importHashToSceneIndex = importHashToSceneIndex;
+            global.importHashToSceneIndex = importHashToSceneIndex;
             if (global.verbose) {
                 logger.info(`[命名映射] 从 bundle config 建立 uuid->path 映射数量: ${map.size}`);
                 logger.info(`[命名映射] 从 bundle config 建立 importHash->uuid 映射数量: ${importHashToUuid.size}`);
                 logger.info(`[命名映射] 从 bundle config 建立 importHash->path 映射数量: ${importHashToPath.size}`);
+                logger.info(`[命名映射] 从 bundle config 建立 importHash->scene 映射数量: ${importHashToSceneIndex.size}`);
+                // 调试：输出包含 "003" 的映射
+                for (const [hash, info] of importHashToPath) {
+                    if (info.path && info.path.includes('003')) {
+                        logger.info(`  [DEBUG] importHash '${hash}' -> path '${info.path}'`);
+                    }
+                }
             }
         } catch (err) {
             logger.warn('从 bundle config 构建 uuid->path 映射失败:', err);
@@ -766,19 +824,17 @@ const resourceProcessor = {
                 // 提取bundle名称
                 const bundleName = this.extractBundleName(filePath);
                 
-                // 跳过 main 和 internal 这两个默认 bundle（如果用户没有自定义资源）
-                // 因为它们通常只包含系统生成的编译文件
-                if (bundleName === 'main' || bundleName === 'internal') {
-                    if (global.verbose) {
-                        logger.debug(`跳过系统 bundle: ${bundleName}`);
-                    }
-                    continue;
-                }
+                // 注意：虽然 main 和 internal 通常只包含系统文件，
+                // 但我们仍然需要处理 import 目录中的序列化文件（场景、预制体等）
+                // 因此只在处理其他资源时跳过这两个 bundle
+                const isSystemBundle = bundleName === 'main' || bundleName === 'internal';
                 
                 // 处理import目录中的序列化文件
                 if (ext === '.json' && filePath.includes('import')) {
+                    // 即使是 main/internal bundle，也需要处理 import 中的序列化文件（场景、预制体等）
                     await this.processSerializedFile(filePath, fileName, fileKey, bundleName, projectStructure);
-                } else {
+                } else if (!isSystemBundle) {
+                    // 对于其他资源文件，跳过系统 bundle
                     // 处理其他资源文件，基于解析的项目结构
                     await this.processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure);
                 }
@@ -958,10 +1014,36 @@ const resourceProcessor = {
         const uuid = fileKey;
         const uuidStem = (typeof uuid === 'string' && uuid.includes('.')) ? uuid.split('.')[0] : uuid;
         
-        // 尝试从 importHashToPath 推导资源名称与相对目录（针对纹理和其他资源）
+        // 尝试从 bundlePathsMap 中直接查找资源的路径（最优先）
         let derivedFileName = fileName;
         let derivedSubdir = '';
-        if (global.importHashToPath && typeof global.importHashToPath.get === 'function') {
+        const bundlePathsMap = global.bundlePathsMap || new Map();
+        
+        if (bundlePathsMap.has(bundleName)) {
+            const bundleInfo = bundlePathsMap.get(bundleName);
+            // 遍历该bundle的所有资源路径，尝试匹配文件名
+            for (const resourcePath of bundleInfo.paths) {
+                const baseName = path.basename(resourcePath);
+                const nameWithoutExt = baseName.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                
+                // 检查是否与当前文件名匹配
+                const currentNameWithoutExt = fileName.replace(/\.(prefab|fire|json|asset|png|jpg|jpeg|sprite|atlas)$/i, '');
+                if (nameWithoutExt === currentNameWithoutExt) {
+                    derivedFileName = nameWithoutExt + ext;
+                    const dirPart = path.dirname(resourcePath);
+                    if (dirPart && dirPart !== '.' && dirPart !== '') {
+                        derivedSubdir = dirPart;
+                    }
+                    if (global.verbose) {
+                        logger.debug(`[bundleConfig] 资源 ${fileName} -> ${derivedSubdir ? derivedSubdir + '/' : ''}${derivedFileName}`);
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // 其次尝试从 importHashToPath 推导资源名称与相对目录（针对纹理和其他资源）
+        if (derivedSubdir === '' && global.importHashToPath && typeof global.importHashToPath.get === 'function') {
             const candidates = [fileKey];
             if (typeof fileKey === 'string' && fileKey.includes('.')) {
                 candidates.push(fileKey.split('.')[0]);
@@ -989,8 +1071,8 @@ const resourceProcessor = {
             }
         }
 
-        // 其次尝试通过 uuid->path 映射恢复名称（适用于 native 纹理等非 import 资源）
-        if (derivedFileName === fileName && global.uuidPathMap && typeof global.uuidPathMap.get === 'function') {
+        // 第三优先：尝试通过 uuid->path 映射恢复名称（适用于 native 纹理等非 import 资源）
+        if (derivedSubdir === '' && global.uuidPathMap && typeof global.uuidPathMap.get === 'function') {
             const hit = global.uuidPathMap.get(uuidStem);
             if (hit && hit.path) {
                 const baseName = path.basename(String(hit.path));
@@ -1081,26 +1163,120 @@ const resourceProcessor = {
             const content = await readFile(filePath, 'utf-8');
             const data = JSON.parse(content);
 
+            if (global.verbose) {
+                logger.debug(`[processSerializedFile] 处理: ${fileName} (bundle: ${bundleName})`);
+            }
+
             // 2.4.x 常见：import 文件名可能是 md5，需要通过 config.versions.import 反查 uuid
             let assetId = fileKey;
             let derivedName = ''; // 从 importHash 推导出的名称
+            let derivedPath = ''; // 从 bundlePathsMap 推导出的完整路径（包含目录）
+            
             const importMap = global.importHashToUuid;
+            const importPathMap = global.importHashToPath;
+            const uuidPathMap = global.uuidPathMap;
+            
+            if (global.verbose) {
+                logger.debug(`  importHashToUuid size: ${importMap ? importMap.size : 0}`);
+                logger.debug(`  uuidPathMap size: ${uuidPathMap ? uuidPathMap.size : 0}`);
+            }
+            
             if (importMap && typeof importMap.get === 'function') {
                 const candidates = [fileKey];
+                
+                // 文件名格式可能是：
+                // 1. "0adea70c0.b2b05" - [importHash].[nativeHash]
+                // 2. "4fcab697-a5f7-4665-867d-b7ed9aa3b608.83dee" - [uuid].[importHash]
+                // 我们需要从这些中提取 importHash
+                
                 if (typeof fileKey === 'string' && fileKey.includes('.')) {
-                    candidates.push(fileKey.split('.')[0]);
+                    // 尝试提取最后一个 . 之后的部分作为 importHash
+                    const parts = fileKey.split('.');
+                    if (parts.length >= 2) {
+                        const importHash = parts[parts.length - 1]; // 最后一部分
+                        if (importHash && importHash !== fileKey) {
+                            candidates.push(importHash);
+                        }
+                    }
+                    // 也尝试第一个 . 之前的部分
+                    candidates.push(parts[0]);
                 }
 
                 for (const cand of candidates) {
                     const hit = importMap.get(cand);
                     if (hit && hit.uuid) {
                         assetId = hit.uuid;
-                        break;
+                        
+                        if (global.verbose) {
+                            logger.debug(`  [UUID Lookup] importHash '${cand}' -> UUID '${assetId}'`);
+                        }
+                        
+                        // 优先从 uuidPathMap 获取资源路径
+                        if (uuidPathMap && typeof uuidPathMap.get === 'function') {
+                            const pathByUuid = uuidPathMap.get(assetId);
+                            if (pathByUuid) {
+                                const pathStr = pathByUuid.path || pathByUuid;
+                                if (pathStr) {
+                                    derivedPath = pathStr;
+                                    const baseName = path.basename(derivedPath);
+                                    derivedName = baseName.replace(/\.(prefab|fire|json|asset|png|jpg)$/i, '');
+                                    if (global.verbose) {
+                                        logger.debug(`  [uuidPathMap] UUID '${assetId}' -> path: '${derivedPath}'`);
+                                    }
+                                    break;  // 成功获得路径，退出循环
+                                }
+                            }
+                        }
+                        
+                        // 如果 uuidPathMap 没找到，尝试从 importHashToPath（备选）
+                        if (!derivedPath && importPathMap && typeof importPathMap.get === 'function') {
+                            const pathHit = importPathMap.get(cand);
+                            if (pathHit && pathHit.path) {
+                                derivedPath = pathHit.path;
+                                const baseName = path.basename(derivedPath);
+                                derivedName = baseName.replace(/\.(prefab|fire|json|asset|png|jpg)$/i, '');
+                                if (global.verbose) {
+                                    logger.debug(`  [importPathMap] importHash '${cand}' -> path: '${derivedPath}'`);
+                                }
+                                break;  // 成功获得路径，退出循环
+                            }
+                        }
+                        
+                        // 如果都没找到，至少已经有了 UUID，可以继续处理（使用 derivedName 推导）
+                        if (!derivedName) {
+                            derivedName = serializationParser.deriveNameFromImportHash(cand);
+                        }
+                        break;  // 已经找到 UUID，停止候选项查询
                     }
-                    
-                    // 同时尝试从 importHash 推导名称
-                    if (!derivedName) {
-                        derivedName = serializationParser.deriveNameFromImportHash(cand);
+                }
+            }
+            
+            // 如果没有从 importHash/UUID 获得路径，尝试从 bundlePathsMap 查找
+            if (!derivedPath) {
+                const bundlePathsMap = global.bundlePathsMap || new Map();
+                if (bundlePathsMap.has(bundleName)) {
+                    const bundleInfo = bundlePathsMap.get(bundleName);
+                    if (global.verbose) {
+                        logger.debug(`  [bundlePathsMap] 在 bundle '${bundleName}' 的 ${bundleInfo.paths.length} 个路径中查找 '${derivedName}'`);
+                    }
+                    // 尝试通过名称精确匹配
+                    for (const resourcePath of bundleInfo.paths) {
+                        const baseName = path.basename(resourcePath);
+                        // 精确匹配：prefab文件名（带或不带扩展名）
+                        if (derivedName && baseName.toLowerCase() === (derivedName.toLowerCase() + '.prefab')) {
+                            derivedPath = resourcePath;
+                            if (global.verbose) {
+                                logger.debug(`  [bundlePathsMap] 精确匹配 '${derivedName}' -> '${derivedPath}'`);
+                            }
+                            break;
+                        }
+                        // 模糊匹配：如果精确匹配失败，尝试前缀匹配
+                        if (!derivedPath && derivedName && baseName.replace(/\.(prefab|fire)$/, '').startsWith(derivedName)) {
+                            derivedPath = resourcePath;
+                            if (global.verbose) {
+                                logger.debug(`  [bundlePathsMap] 模糊匹配 '${derivedName}' -> '${derivedPath}'`);
+                            }
+                        }
                     }
                 }
             }
@@ -1109,15 +1285,50 @@ const resourceProcessor = {
             const parsedData = serializationParser.parseSerializedData(data, filePath, bundleName, assetId);
             
                 if (parsedData) {
+                    if (global.verbose) {
+                        logger.debug(`[parseSerializedData] 结果类型: ${parsedData.__type__} (file: ${fileName})`);
+                    }
                 // 根据解析结果的类型处理
                 if (parsedData.__type__ === 'cc.SceneAsset') {
+                    // 对于场景，尝试从 importHashToSceneIndex 获取场景路径
+                    if (!derivedPath) {
+                        const sceneHashMap = global.importHashToSceneIndex;
+                        if (sceneHashMap && typeof sceneHashMap.get === 'function') {
+                            // 尝试用 fileKey 的不同部分查询
+                            const candidates = [fileKey];
+                            if (typeof fileKey === 'string' && fileKey.includes('.')) {
+                                const parts = fileKey.split('.');
+                                if (parts.length >= 2) {
+                                    candidates.push(parts[parts.length - 1]); // 最后部分
+                                    candidates.push(parts[0]); // 第一部分
+                                }
+                            }
+                            
+                            for (const cand of candidates) {
+                                const sceneInfo = sceneHashMap.get(cand);
+                                if (sceneInfo && sceneInfo.path) {
+                                    derivedPath = sceneInfo.path;
+                                    derivedName = path.basename(derivedPath).replace(/\.(fire|json)$/i, '');
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
                     // 保存场景文件
-                    serializationParser.saveSceneFile(parsedData, global.paths.output, bundleName);
+                    if (global.verbose) {
+                        logger.info(`[场景文件] 处理场景: ${parsedData._name || 'unknown'} (uuid: ${assetId}, bundle: ${bundleName}, path: '${derivedPath || 'none'}')`);
+                    }
+                    serializationParser.saveSceneFile(parsedData, global.paths.output, bundleName, derivedPath, derivedName);
                 } else if (parsedData.__type__ === 'cc.Prefab') {
                     // 保存预制体文件
                     // 记录源文件名用于避免重名覆盖
                     parsedData._file = filePath;
                     parsedData._derivedName = derivedName; // 传递从 importHash 推导出的名称
+                    parsedData._derivedPath = derivedPath; // 传递完整的资源路径（用于确定子目录）
+                    if (global.verbose) {
+                        logger.info(`[文件保存] prefab: ${derivedName || 'unknown'}, path: '${derivedPath || 'none'}'`);
+                    }
                     serializationParser.savePrefabFile(parsedData, global.paths.output, bundleName);
                 } else if (parsedData.__type__ === 'cc.SpriteAtlas') {
                     // 处理精灵图集，记录必要上下文，供转换器输出
