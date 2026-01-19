@@ -671,16 +671,16 @@ async function copyOriginalResources(sourcePath, outputPath) {
             const subTargetDir = path.join(targetDir, file);
             copyAssets(srcPath, subTargetDir);
           } else {
-            // 只复制需要的文件类型
+            // 复制需要的文件类型（包括资源文件和代码文件）
             const ext = path.extname(file).toLowerCase();
             if (['.fire', '.prefab', '.png', '.jpg', '.jpeg', '.gif', '.webp', 
-                  '.anim', '.animation', '.fx', '.effect', '.atlas', '.meta'].includes(ext)) {
+                  '.anim', '.animation', '.fx', '.effect', '.atlas', '.meta', '.ts', '.js'].includes(ext)) {
               const tgtPath = path.join(targetDir, file);
               
               // 检查目标文件是否已存在（优先保留已有的生成版本）
               if (!fs.existsSync(tgtPath)) {
                 // 区分文本文件和二进制文件
-                const isTextFile = ['.fire', '.prefab', '.anim', '.animation', '.meta'].includes(ext);
+                const isTextFile = ['.fire', '.prefab', '.anim', '.animation', '.meta', '.ts', '.js'].includes(ext);
                 
                 if (isTextFile) {
                   // 文本文件使用 UTF-8 编码
