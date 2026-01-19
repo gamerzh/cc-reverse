@@ -309,10 +309,11 @@ const resourceProcessor = {
     /**
      * 从所有bundle的config文件的paths字段中构建完整的目录结构
      * 这个函数完全依赖编译产物，不需要原项目
-     * @returns {Promise<Set<string>>} 返回所有应该创建的目录集合
+     * 关键：按bundle记录路径，保持相对关系
+     * @returns {Promise<void>}
      */
     async buildDirectoryStructureFromBundleConfigs() {
-        const allDirectories = new Set();
+        const bundlePathsMap = new Map(); // bundle名称 -> {paths: [], directories: []}
         const allAssetPaths = new Set();
         
         try {
@@ -334,6 +335,13 @@ const resourceProcessor = {
 
                 if (!json || !json.paths) continue;
 
+                // 提取bundle名称
+                const bundleName = this.extractBundleName(filePath) || 'common';
+                if (!bundlePathsMap.has(bundleName)) {
+                    bundlePathsMap.set(bundleName, { paths: [], directories: new Set() });
+                }
+
+                const bundleInfo = bundlePathsMap.get(bundleName);
                 const paths = json.paths;
                 const pathsList = [];
                 
@@ -355,36 +363,38 @@ const resourceProcessor = {
                     }
                 }
 
-                // 从所有路径中提取目录
+                // 为这个bundle记录所有路径和目录
                 for (const assetPath of pathsList) {
                     if (!assetPath || typeof assetPath !== 'string') continue;
                     
+                    bundleInfo.paths.push(assetPath);
                     allAssetPaths.add(assetPath);
                     
-                    // 提取所有中间目录
+                    // 提取该路径的所有中间目录
                     const parts = assetPath.split('/');
                     for (let i = 0; i < parts.length - 1; i++) {
                         const dirPath = parts.slice(0, i + 1).join('/');
-                        allDirectories.add(dirPath);
+                        bundleInfo.directories.add(dirPath);
                     }
                 }
             }
 
             // 保存到全局状态供后续使用
-            global.bundleDirectories = allDirectories;
+            global.bundlePathsMap = bundlePathsMap;
             global.bundleAssetPaths = allAssetPaths;
             
             if (global.verbose) {
-                logger.info(`[目录结构] 从 bundle config 提取的目录数: ${allDirectories.size}`);
-                logger.info(`[目录结构] 从 bundle config 提取的资源路径数: ${allAssetPaths.size}`);
+                let totalDirs = 0;
+                for (const [bundle, info] of bundlePathsMap) {
+                    totalDirs += info.directories.size;
+                    logger.info(`[目录结构] Bundle '${bundle}': ${info.directories.size} 个目录, ${info.paths.length} 个资源`);
+                }
+                logger.info(`[目录结构] 总计: ${totalDirs} 个目录, ${allAssetPaths.size} 个资源路径`);
             }
-            
-            return allDirectories;
         } catch (err) {
             logger.warn('从 bundle config 构建目录结构失败:', err);
-            global.bundleDirectories = new Set();
+            global.bundlePathsMap = new Map();
             global.bundleAssetPaths = new Set();
-            return new Set();
         }
     },
     

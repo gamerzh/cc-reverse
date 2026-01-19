@@ -570,33 +570,33 @@ async function copySourceScripts(sourcePath, outputPath) {
   try {
     logger.info('开始创建源代码脚本目录结构（基于编译产物）...');
 
-    // 获取从bundle config中提取的目录结构和资源路径
-    const bundleDirectories = global.bundleDirectories || new Set();
-    const bundleAssetPaths = global.bundleAssetPaths || new Set();
+    // 获取从bundle config中提取的目录结构信息
+    const bundlePathsMap = global.bundlePathsMap || new Map();
+    const outputAssetsDir = path.join(outputPath, 'assets');
 
-    // 获取所有代码文件（从asset package或其他来源已处理过）
-    const scriptPaths = new Set();
-    
-    // 识别所有.ts/.js文件对应的资源路径
-    // 这些文件可能来自asset package的code字段或其他代码资源
-    for (const assetPath of bundleAssetPaths) {
-      // 如果路径中包含script或code目录，或者以.ts/.js结尾
-      if (assetPath.includes('script') || assetPath.includes('code') || 
-          assetPath.endsWith('.ts') || assetPath.endsWith('.js')) {
-        scriptPaths.add(assetPath);
+    // 识别所有可能的脚本目录（包含script或code的路径）
+    const scriptDirectories = new Set();
+    for (const [bundleName, bundleInfo] of bundlePathsMap) {
+      for (const path_item of bundleInfo.paths) {
+        if (path_item.includes('script') || path_item.includes('code') || 
+            path_item.endsWith('.ts') || path_item.endsWith('.js')) {
+          // 这是一个脚本文件或脚本目录
+          const parts = path_item.split('/');
+          for (let i = 0; i < parts.length - 1; i++) {
+            const scriptDir = parts.slice(0, i + 1).join('/');
+            scriptDirectories.add(`${bundleName}/${scriptDir}`);
+          }
+        }
       }
     }
 
-    // 从bundleDirectories中筛选可能包含脚本的目录
-    for (const dir of bundleDirectories) {
-      if (dir.includes('script') || dir.includes('code') || dir.toLowerCase().includes('script')) {
-        // 这个目录应该被创建
-        const outputDir = path.join(outputPath, 'assets', dir);
-        if (!fs.existsSync(outputDir)) {
-          fs.mkdirSync(outputDir, { recursive: true });
-          if (global.verbose) {
-            logger.debug(`创建脚本目录: ${dir}`);
-          }
+    // 创建这些脚本目录
+    for (const scriptDir of scriptDirectories) {
+      const fullPath = path.join(outputAssetsDir, scriptDir);
+      if (!fs.existsSync(fullPath)) {
+        fs.mkdirSync(fullPath, { recursive: true });
+        if (global.verbose) {
+          logger.debug(`创建脚本目录: ${scriptDir}`);
         }
       }
     }
@@ -643,7 +643,7 @@ async function copySourceScripts(sourcePath, outputPath) {
           }
         }
 
-        const outputScriptsDir = path.join(outputPath, 'assets', 'script');
+        const outputScriptsDir = path.join(outputAssetsDir, 'script');
         if (!fs.existsSync(outputScriptsDir)) {
           fs.mkdirSync(outputScriptsDir, { recursive: true });
         }
@@ -655,7 +655,7 @@ async function copySourceScripts(sourcePath, outputPath) {
       logger.debug('无法从原项目恢复源代码（这是正常的）');
     }
 
-    if (scriptPaths.size > 0 || fs.existsSync(path.join(outputPath, 'assets', 'script'))) {
+    if (scriptDirectories.size > 0 || fs.existsSync(path.join(outputAssetsDir, 'script'))) {
       logger.info('源代码脚本目录结构创建完成');
     } else {
       logger.debug('未发现源代码脚本文件');
@@ -675,31 +675,25 @@ async function copyOriginalResources(sourcePath, outputPath) {
   try {
     logger.info('开始创建资源目录结构（基于编译产物）...');
 
-    // 获取从bundle config中提取的完整目录结构
-    const bundleDirectories = global.bundleDirectories || new Set();
-    const bundleAssetPaths = global.bundleAssetPaths || new Set();
-
-    // 第1步：基于bundleDirectories创建所有应该存在的目录
     const outputAssetsDir = path.join(outputPath, 'assets');
-    for (const dir of bundleDirectories) {
-      // 跳过bundle名称本身（如 'a', 'b' 等）
-      if (dir === 'a' || dir === 'b' || dir === 'internal' || dir === 'main' || 
-          dir === 'gameScene' || dir === 'texture01') {
-        // 这些可能是bundle名或顶级目录
-        const dirPath = path.join(outputAssetsDir, dir);
-        if (!fs.existsSync(dirPath)) {
-          fs.mkdirSync(dirPath, { recursive: true });
+    const bundlePathsMap = global.bundlePathsMap || new Map();
+
+    // 第1步：基于bundlePathsMap按bundle创建正确的目录结构
+    // 关键：resource paths是相对于bundle的，而不是相对于assets根目录的
+    for (const [bundleName, bundleInfo] of bundlePathsMap) {
+      // bundle本身的目录
+      const bundleDir = path.join(outputAssetsDir, bundleName);
+      if (!fs.existsSync(bundleDir)) {
+        fs.mkdirSync(bundleDir, { recursive: true });
+      }
+
+      // 在bundle目录下创建该bundle中资源的所有子目录
+      for (const relPath of bundleInfo.directories) {
+        const fullDirPath = path.join(bundleDir, relPath);
+        if (!fs.existsSync(fullDirPath)) {
+          fs.mkdirSync(fullDirPath, { recursive: true });
           if (global.verbose) {
-            logger.debug(`创建资源目录: ${dir}`);
-          }
-        }
-      } else {
-        // 其他路径中的目录
-        const dirPath = path.join(outputAssetsDir, dir);
-        if (!fs.existsSync(dirPath)) {
-          fs.mkdirSync(dirPath, { recursive: true });
-          if (global.verbose) {
-            logger.debug(`创建资源目录: ${dir}`);
+            logger.debug(`创建资源目录: ${bundleName}/${relPath}`);
           }
         }
       }
