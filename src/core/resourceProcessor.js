@@ -305,6 +305,88 @@ const resourceProcessor = {
             global.importHashToPath = this.importHashToPath;
         }
     },
+
+    /**
+     * 从所有bundle的config文件的paths字段中构建完整的目录结构
+     * 这个函数完全依赖编译产物，不需要原项目
+     * @returns {Promise<Set<string>>} 返回所有应该创建的目录集合
+     */
+    async buildDirectoryStructureFromBundleConfigs() {
+        const allDirectories = new Set();
+        const allAssetPaths = new Set();
+        
+        try {
+            for (const filePath of this.fileList) {
+                const ext = path.extname(filePath).toLowerCase();
+                if (ext !== '.json') continue;
+                const fileName = path.basename(filePath);
+
+                // 只处理 config.<hash>.json 或 config.json
+                if (!/^config(\.[a-f0-9]+)?\.json$/i.test(fileName)) continue;
+
+                let json;
+                try {
+                    const content = await readFile(filePath, 'utf-8');
+                    json = JSON.parse(content);
+                } catch {
+                    continue;
+                }
+
+                if (!json || !json.paths) continue;
+
+                const paths = json.paths;
+                const pathsList = [];
+                
+                // 提取所有路径
+                if (Array.isArray(paths)) {
+                    pathsList.push(...paths.map(p => Array.isArray(p) ? p[0] : p));
+                } else if (paths && typeof paths === 'object') {
+                    for (const k of Object.keys(paths)) {
+                        const item = paths[k];
+                        const p = Array.isArray(item) ? item[0] : item;
+                        if (typeof p === 'string') pathsList.push(p);
+                    }
+                }
+
+                // scenes 字段
+                if (json.scenes && typeof json.scenes === 'object') {
+                    for (const p of Object.values(json.scenes)) {
+                        if (typeof p === 'string') pathsList.push(p);
+                    }
+                }
+
+                // 从所有路径中提取目录
+                for (const assetPath of pathsList) {
+                    if (!assetPath || typeof assetPath !== 'string') continue;
+                    
+                    allAssetPaths.add(assetPath);
+                    
+                    // 提取所有中间目录
+                    const parts = assetPath.split('/');
+                    for (let i = 0; i < parts.length - 1; i++) {
+                        const dirPath = parts.slice(0, i + 1).join('/');
+                        allDirectories.add(dirPath);
+                    }
+                }
+            }
+
+            // 保存到全局状态供后续使用
+            global.bundleDirectories = allDirectories;
+            global.bundleAssetPaths = allAssetPaths;
+            
+            if (global.verbose) {
+                logger.info(`[目录结构] 从 bundle config 提取的目录数: ${allDirectories.size}`);
+                logger.info(`[目录结构] 从 bundle config 提取的资源路径数: ${allAssetPaths.size}`);
+            }
+            
+            return allDirectories;
+        } catch (err) {
+            logger.warn('从 bundle config 构建目录结构失败:', err);
+            global.bundleDirectories = new Set();
+            global.bundleAssetPaths = new Set();
+            return new Set();
+        }
+    },
     
     /**
      * 递归读取目录下所有文件
@@ -659,6 +741,9 @@ const resourceProcessor = {
 
             // 仅靠编译产物恢复可读名称：先从 bundle config.*.json 读取 uuid->path
             await this.buildUuidPathMapFromBundleConfigs();
+            
+            // 从 bundle config 的 paths 中构建完整的目录结构（不依赖原项目）
+            await this.buildDirectoryStructureFromBundleConfigs();
             
             // 统计每个bundle的资源数量
             const bundleStats = new Map();

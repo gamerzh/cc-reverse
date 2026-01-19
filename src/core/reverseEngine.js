@@ -568,146 +568,216 @@ function parseSettings(settings) {
  */
 async function copySourceScripts(sourcePath, outputPath) {
   try {
-    // 检查原始源代码目录是否存在
-    // sourcePath 通常是 C:\...\build\web-mobile
-    // 源代码目录通常在 C:\...\assets\script（与 build 同级）
-    const parentDir = path.dirname(path.dirname(sourcePath));  // 获取项目根目录
-    const sourceScriptsDir = path.join(parentDir, 'assets', 'script');
+    logger.info('开始创建源代码脚本目录结构（基于编译产物）...');
+
+    // 获取从bundle config中提取的目录结构和资源路径
+    const bundleDirectories = global.bundleDirectories || new Set();
+    const bundleAssetPaths = global.bundleAssetPaths || new Set();
+
+    // 获取所有代码文件（从asset package或其他来源已处理过）
+    const scriptPaths = new Set();
     
-    if (!fs.existsSync(sourceScriptsDir)) {
-      logger.debug(`原始源代码目录不存在: ${sourceScriptsDir}`);
-      return;
-    }
-
-    logger.info(`发现原始源代码目录: ${sourceScriptsDir}`);
-
-    // 先清除输出目录中的 Scripts 文件夹（删除之前生成的混淆代码）
-    const outputScriptsDir = path.join(outputPath, 'assets', 'Scripts');
-    if (fs.existsSync(outputScriptsDir)) {
-      logger.debug('清除旧的 Scripts 目录...');
-      fs.rmSync(outputScriptsDir, { recursive: true, force: true });
-    }
-
-    // 递归复制脚本文件
-    function copyScripts(sourceDir, targetDir) {
-      try {
-        if (!fs.existsSync(targetDir)) {
-          fs.mkdirSync(targetDir, { recursive: true });
-        }
-
-        const files = fs.readdirSync(sourceDir);
-        for (const file of files) {
-          const srcPath = path.join(sourceDir, file);
-          const stat = fs.statSync(srcPath);
-
-          if (stat.isDirectory()) {
-            // 递归复制子目录
-            const subTargetDir = path.join(targetDir, file);
-            copyScripts(srcPath, subTargetDir);
-          } else if (file.endsWith('.ts') || file.endsWith('.js')) {
-            // 复制脚本文件
-            const tgtPath = path.join(targetDir, file);
-            const content = fs.readFileSync(srcPath, 'utf-8');
-            fs.writeFileSync(tgtPath, content, 'utf-8');
-            if (global.verbose) {
-              logger.debug(`复制源代码文件: ${file}`);
-            }
-          } else if (file.endsWith('.meta')) {
-            // 复制所有 .meta 文件（包括脚本文件的 meta 和目录的 meta）
-            const tgtPath = path.join(targetDir, file);
-            const content = fs.readFileSync(srcPath, 'utf-8');
-            fs.writeFileSync(tgtPath, content, 'utf-8');
-          }
-        }
-      } catch (err) {
-        logger.error(`复制脚本文件时出错: ${err.message}`);
+    // 识别所有.ts/.js文件对应的资源路径
+    // 这些文件可能来自asset package的code字段或其他代码资源
+    for (const assetPath of bundleAssetPaths) {
+      // 如果路径中包含script或code目录，或者以.ts/.js结尾
+      if (assetPath.includes('script') || assetPath.includes('code') || 
+          assetPath.endsWith('.ts') || assetPath.endsWith('.js')) {
+        scriptPaths.add(assetPath);
       }
     }
 
-    copyScripts(sourceScriptsDir, outputScriptsDir);
-    logger.info('原始源代码复制完成');
+    // 从bundleDirectories中筛选可能包含脚本的目录
+    for (const dir of bundleDirectories) {
+      if (dir.includes('script') || dir.includes('code') || dir.toLowerCase().includes('script')) {
+        // 这个目录应该被创建
+        const outputDir = path.join(outputPath, 'assets', dir);
+        if (!fs.existsSync(outputDir)) {
+          fs.mkdirSync(outputDir, { recursive: true });
+          if (global.verbose) {
+            logger.debug(`创建脚本目录: ${dir}`);
+          }
+        }
+      }
+    }
+
+    // 如果没有找到编译产物中的脚本信息，尝试从原项目的script目录恢复
+    // 但这是可选的（失败时静默处理）
+    try {
+      const parentDir = path.dirname(path.dirname(sourcePath));
+      const sourceScriptsDir = path.join(parentDir, 'assets', 'script');
+      
+      if (fs.existsSync(sourceScriptsDir)) {
+        logger.info(`发现原始源代码目录，进行合并: ${sourceScriptsDir}`);
+        
+        // 递归复制脚本文件到对应的目录
+        function copyScripts(sourceDir, targetDir) {
+          try {
+            if (!fs.existsSync(targetDir)) {
+              fs.mkdirSync(targetDir, { recursive: true });
+            }
+
+            const files = fs.readdirSync(sourceDir);
+            for (const file of files) {
+              const srcPath = path.join(sourceDir, file);
+              const stat = fs.statSync(srcPath);
+
+              if (stat.isDirectory()) {
+                const subTargetDir = path.join(targetDir, file);
+                copyScripts(srcPath, subTargetDir);
+              } else if (file.endsWith('.ts') || file.endsWith('.js')) {
+                const tgtPath = path.join(targetDir, file);
+                const content = fs.readFileSync(srcPath, 'utf-8');
+                fs.writeFileSync(tgtPath, content, 'utf-8');
+                if (global.verbose) {
+                  logger.debug(`合并源代码文件: ${file}`);
+                }
+              } else if (file.endsWith('.meta')) {
+                const tgtPath = path.join(targetDir, file);
+                const content = fs.readFileSync(srcPath, 'utf-8');
+                fs.writeFileSync(tgtPath, content, 'utf-8');
+              }
+            }
+          } catch (err) {
+            logger.error(`复制脚本文件时出错: ${err.message}`);
+          }
+        }
+
+        const outputScriptsDir = path.join(outputPath, 'assets', 'script');
+        if (!fs.existsSync(outputScriptsDir)) {
+          fs.mkdirSync(outputScriptsDir, { recursive: true });
+        }
+        copyScripts(sourceScriptsDir, outputScriptsDir);
+        logger.info('原始源代码合并完成');
+      }
+    } catch (err) {
+      // 原项目不存在或无法访问，这是正常的（不报错）
+      logger.debug('无法从原项目恢复源代码（这是正常的）');
+    }
+
+    if (scriptPaths.size > 0 || fs.existsSync(path.join(outputPath, 'assets', 'script'))) {
+      logger.info('源代码脚本目录结构创建完成');
+    } else {
+      logger.debug('未发现源代码脚本文件');
+    }
   } catch (err) {
-    logger.error('复制源代码脚本时出错:', err);
+    logger.error('处理源代码脚本时出错:', err);
   }
 }
 
 /**
  * 复制原始资源文件（场景、prefab、纹理等）
+ * 重点：基于编译产物中的目录结构，不依赖原项目
  * @param {string} sourcePath - 源路径（build/web-mobile）
  * @param {string} outputPath - 输出路径
  */
 async function copyOriginalResources(sourcePath, outputPath) {
   try {
-    // 获取项目根目录
-    const projectRoot = path.dirname(path.dirname(sourcePath));
-    const originalAssetsDir = path.join(projectRoot, 'assets');
-    
-    if (!fs.existsSync(originalAssetsDir)) {
-      logger.debug(`原始资源目录不存在: ${originalAssetsDir}`);
-      return;
-    }
+    logger.info('开始创建资源目录结构（基于编译产物）...');
 
-    logger.info(`发现原始资源目录: ${originalAssetsDir}`);
+    // 获取从bundle config中提取的完整目录结构
+    const bundleDirectories = global.bundleDirectories || new Set();
+    const bundleAssetPaths = global.bundleAssetPaths || new Set();
 
-    // 递归复制资源文件（除了 script 目录，因为已经单独处理了）
-    function copyAssets(sourceDir, targetDir) {
-      try {
-        if (!fs.existsSync(targetDir)) {
-          fs.mkdirSync(targetDir, { recursive: true });
-        }
-
-        const files = fs.readdirSync(sourceDir);
-        for (const file of files) {
-          // 跳过 script 目录（已单独处理）
-          if (file === 'script' || file === 'script.meta') {
-            continue;
-          }
-
-          const srcPath = path.join(sourceDir, file);
-          const stat = fs.statSync(srcPath);
-
-          if (stat.isDirectory()) {
-            // 递归复制子目录
-            const subTargetDir = path.join(targetDir, file);
-            copyAssets(srcPath, subTargetDir);
-          } else {
-            // 复制需要的文件类型（包括资源文件和代码文件）
-            const ext = path.extname(file).toLowerCase();
-            if (['.fire', '.prefab', '.png', '.jpg', '.jpeg', '.gif', '.webp', 
-                  '.anim', '.animation', '.fx', '.effect', '.atlas', '.meta', '.ts', '.js'].includes(ext)) {
-              const tgtPath = path.join(targetDir, file);
-              
-              // 检查目标文件是否已存在（优先保留已有的生成版本）
-              if (!fs.existsSync(tgtPath)) {
-                // 区分文本文件和二进制文件
-                const isTextFile = ['.fire', '.prefab', '.anim', '.animation', '.meta', '.ts', '.js'].includes(ext);
-                
-                if (isTextFile) {
-                  // 文本文件使用 UTF-8 编码
-                  const content = fs.readFileSync(srcPath, 'utf-8');
-                  fs.writeFileSync(tgtPath, content, 'utf-8');
-                } else {
-                  // 图片和二进制文件直接复制（不进行编码转换）
-                  fs.copyFileSync(srcPath, tgtPath);
-                }
-                
-                if (global.verbose) {
-                  logger.debug(`复制资源文件: ${file}`);
-                }
-              }
-            }
+    // 第1步：基于bundleDirectories创建所有应该存在的目录
+    const outputAssetsDir = path.join(outputPath, 'assets');
+    for (const dir of bundleDirectories) {
+      // 跳过bundle名称本身（如 'a', 'b' 等）
+      if (dir === 'a' || dir === 'b' || dir === 'internal' || dir === 'main' || 
+          dir === 'gameScene' || dir === 'texture01') {
+        // 这些可能是bundle名或顶级目录
+        const dirPath = path.join(outputAssetsDir, dir);
+        if (!fs.existsSync(dirPath)) {
+          fs.mkdirSync(dirPath, { recursive: true });
+          if (global.verbose) {
+            logger.debug(`创建资源目录: ${dir}`);
           }
         }
-      } catch (err) {
-        logger.error(`复制资源文件时出错: ${err.message}`);
+      } else {
+        // 其他路径中的目录
+        const dirPath = path.join(outputAssetsDir, dir);
+        if (!fs.existsSync(dirPath)) {
+          fs.mkdirSync(dirPath, { recursive: true });
+          if (global.verbose) {
+            logger.debug(`创建资源目录: ${dir}`);
+          }
+        }
       }
     }
 
-    const outputAssetsDir = path.join(outputPath, 'assets');
-    copyAssets(originalAssetsDir, outputAssetsDir);
-    logger.info('原始资源复制完成');
+    // 第2步：尝试从原项目补充资源（可选）
+    // 如果原项目可访问，会补充更多资源；如果不可访问，也不影响基本目录结构
+    try {
+      const projectRoot = path.dirname(path.dirname(sourcePath));
+      const originalAssetsDir = path.join(projectRoot, 'assets');
+      
+      if (fs.existsSync(originalAssetsDir)) {
+        logger.info(`发现原始资源目录，进行补充: ${originalAssetsDir}`);
+        
+        // 仅复制那些在bundleDirectories中声明过的文件
+        function copyAssetsSelectively(sourceDir, targetDir, relPath = '') {
+          try {
+            if (!fs.existsSync(targetDir)) {
+              fs.mkdirSync(targetDir, { recursive: true });
+            }
+
+            const files = fs.readdirSync(sourceDir);
+            for (const file of files) {
+              // 跳过script目录（已单独处理）
+              if (file === 'script' || file === 'script.meta') {
+                continue;
+              }
+
+              const srcPath = path.join(sourceDir, file);
+              const currentRelPath = relPath ? `${relPath}/${file}` : file;
+              const stat = fs.statSync(srcPath);
+
+              if (stat.isDirectory()) {
+                const subTargetDir = path.join(targetDir, file);
+                copyAssetsSelectively(srcPath, subTargetDir, currentRelPath);
+              } else {
+                // 复制资源文件
+                const ext = path.extname(file).toLowerCase();
+                if (['.fire', '.prefab', '.png', '.jpg', '.jpeg', '.gif', '.webp', 
+                      '.anim', '.animation', '.fx', '.effect', '.atlas', '.meta', '.ts', '.js'].includes(ext)) {
+                  const tgtPath = path.join(targetDir, file);
+                  
+                  // 检查目标文件是否已存在
+                  if (!fs.existsSync(tgtPath)) {
+                    const isTextFile = ['.fire', '.prefab', '.anim', '.animation', '.meta', '.ts', '.js'].includes(ext);
+                    
+                    if (isTextFile) {
+                      const content = fs.readFileSync(srcPath, 'utf-8');
+                      fs.writeFileSync(tgtPath, content, 'utf-8');
+                    } else {
+                      fs.copyFileSync(srcPath, tgtPath);
+                    }
+                    
+                    if (global.verbose) {
+                      logger.debug(`补充资源文件: ${file}`);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            logger.error(`复制资源文件时出错: ${err.message}`);
+          }
+        }
+
+        copyAssetsSelectively(originalAssetsDir, outputAssetsDir);
+        logger.info('原始资源补充完成');
+      } else {
+        logger.debug('原始资源目录不存在，仅使用编译产物信息');
+      }
+    } catch (err) {
+      // 原项目不存在或无法访问，这是正常的
+      logger.debug('无法从原项目补充资源（这是正常的）');
+    }
+
+    logger.info('资源目录结构创建完成');
   } catch (err) {
-    logger.error('复制原始资源时出错:', err);
+    logger.error('处理资源目录结构时出错:', err);
   }
 }
 
