@@ -88,6 +88,7 @@ const resourceProcessor = {
             const importHashToUuid = new Map();
             const importHashToPath = new Map(); // 新增：import hash -> asset name
             const importHashToSceneIndex = new Map(); // 新增：import hash -> scene index（用于场景文件）
+            const importHashToPrefabPath = new Map(); // 新增：import hash -> prefab path（用于 prefab 文件）
             for (const filePath of this.fileList) {
                 const ext = path.extname(filePath).toLowerCase();
                 if (ext !== '.json') continue;
@@ -265,6 +266,10 @@ const resourceProcessor = {
                         const assetNames = [];
                         const typesArray = Array.isArray(json.types) ? json.types : [];
                         
+                        if (global.verbose && bundleName === 'b') {
+                            logger.debug(`  [packs] 处理 importHash='${importHash}', indices=[${indices.join(',')}], typesArray=[${typesArray.join(',')}]`);
+                        }
+                        
                         // 首先查找 cc.Prefab 类型的资源，以及场景资源
                         let prefabName = '';
                         let sceneIndex = -1;
@@ -275,7 +280,15 @@ const resourceProcessor = {
                             const i = Number(idx);
                             if (!Number.isFinite(i)) continue;
                             const p = pathsByIndex.get(i);
-                            if (!p) continue;
+                            if (global.verbose && bundleName === 'b') {
+                                logger.debug(`    循环 idx=${idx}, i=${i}, pathsByIndex.get(${i})=${p}`);
+                            }
+                            if (!p) {
+                                if (global.verbose && bundleName === 'b') {
+                                    logger.debug(`      路径为空，跳过`);
+                                }
+                                continue;
+                            }
                             
                             if (!firstAssetPath) {
                                 firstAssetPath = p; // 记录第一个资源作为备选
@@ -283,12 +296,22 @@ const resourceProcessor = {
                             
                             // 检查这个资源的类型
                             const item = Array.isArray(paths[i]) ? paths[i] : paths[String(i)];
+                            if (global.verbose && bundleName === 'b') {
+                                logger.debug(`    索引=${i}, 路径=${p}, item=${JSON.stringify(item)}`);
+                            }
+                            
                             if (Array.isArray(item)) {
                                 const typeIdx = item[1]; // paths[i] = [name, typeIndex, ...] 格式
                                 if (typeof typeIdx === 'number' && typeIdx < typesArray.length) {
                                     const typeStr = typesArray[typeIdx];
+                                    if (global.verbose && bundleName === 'b') {
+                                        logger.debug(`      typeIdx=${typeIdx}, typeStr='${typeStr}'`);
+                                    }
                                     if (typeStr === 'cc.Prefab' && !prefabName) {
                                         prefabName = p; // 找到了 prefab，记录其名称
+                                        if (global.verbose && bundleName === 'b') {
+                                            logger.debug(`      找到 prefab: ${prefabName}`);
+                                        }
                                     }
                                 }
                             }
@@ -329,6 +352,17 @@ const resourceProcessor = {
                                 bundle: bundleName
                             });
                         }
+                        
+                        // 如果发现 prefab，记录到 importHashToPrefabPath 中
+                        if (prefabName) {
+                            importHashToPrefabPath.set(importHash, {
+                                path: prefabName,
+                                bundle: bundleName
+                            });
+                            if (global.verbose) {
+                                logger.debug(`[Prefab In Pack] importHash="${importHash}", prefabPath="${prefabName}"`);
+                            }
+                        }
                     }
                 }
             }
@@ -341,11 +375,14 @@ const resourceProcessor = {
             global.importHashToPath = importHashToPath;
             this.importHashToSceneIndex = importHashToSceneIndex;
             global.importHashToSceneIndex = importHashToSceneIndex;
+            this.importHashToPrefabPath = importHashToPrefabPath;
+            global.importHashToPrefabPath = importHashToPrefabPath;
             if (global.verbose) {
                 logger.info(`[命名映射] 从 bundle config 建立 uuid->path 映射数量: ${map.size}`);
                 logger.info(`[命名映射] 从 bundle config 建立 importHash->uuid 映射数量: ${importHashToUuid.size}`);
                 logger.info(`[命名映射] 从 bundle config 建立 importHash->path 映射数量: ${importHashToPath.size}`);
                 logger.info(`[命名映射] 从 bundle config 建立 importHash->scene 映射数量: ${importHashToSceneIndex.size}`);
+                logger.info(`[命名映射] 从 bundle config 建立 importHash->prefab 映射数量: ${importHashToPrefabPath.size}`);
                 // 调试：输出包含 "003" 的映射
                 for (const [hash, info] of importHashToPath) {
                     if (info.path && info.path.includes('003')) {
@@ -1222,6 +1259,17 @@ const resourceProcessor = {
                             logger.debug(`  [UUID Lookup] importHash '${cand}' -> UUID '${assetId}'`);
                         }
                         
+                        // 首先尝试从 importHashToPrefabPath 获取 prefab 路径（针对 prefab 文件）
+                        if (global.importHashToPrefabPath && global.importHashToPrefabPath.has(cand)) {
+                            const prefabInfo = global.importHashToPrefabPath.get(cand);
+                            derivedPath = prefabInfo.path;
+                            derivedName = path.basename(derivedPath).replace(/\.(prefab)$/i, '');
+                            if (global.verbose) {
+                                logger.debug(`  [importHashToPrefabPath] importHash '${cand}' -> prefab: '${derivedPath}'`);
+                            }
+                            break;  // 找到 prefab，直接停止
+                        }
+                        
                         // 优先从 uuidPathMap 获取资源路径
                         if (uuidPathMap && typeof uuidPathMap.get === 'function') {
                             const pathByUuid = uuidPathMap.get(assetId);
@@ -1262,32 +1310,25 @@ const resourceProcessor = {
                 }
             }
             
-            // 如果没有从 importHash/UUID 获得路径，尝试从 bundlePathsMap 查找
+            // 如果没有从 importHash/UUID 获得路径，尝试从 importHashToPrefabPath 直接查找
             if (!derivedPath) {
-                const bundlePathsMap = global.bundlePathsMap || new Map();
-                if (bundlePathsMap.has(bundleName)) {
-                    const bundleInfo = bundlePathsMap.get(bundleName);
-                    if (global.verbose) {
-                        logger.debug(`  [bundlePathsMap] 在 bundle '${bundleName}' 的 ${bundleInfo.paths.length} 个路径中查找 '${derivedName}'`);
-                    }
-                    // 尝试通过名称精确匹配
-                    for (const resourcePath of bundleInfo.paths) {
-                        const baseName = path.basename(resourcePath);
-                        // 精确匹配：prefab文件名（带或不带扩展名）
-                        if (derivedName && baseName.toLowerCase() === (derivedName.toLowerCase() + '.prefab')) {
-                            derivedPath = resourcePath;
-                            if (global.verbose) {
-                                logger.debug(`  [bundlePathsMap] 精确匹配 '${derivedName}' -> '${derivedPath}'`);
-                            }
-                            break;
+                const fileKeyCandidates = [fileKey];
+                if (typeof fileKey === 'string' && fileKey.includes('.')) {
+                    const parts = fileKey.split('.');
+                    fileKeyCandidates.push(parts[0]); // 第一部分（可能是 import hash）
+                    fileKeyCandidates.push(parts[parts.length - 1]); // 最后一部分
+                }
+                
+                // 尝试在 importHashToPrefabPath 中查找 prefab 名称
+                for (const candidate of fileKeyCandidates) {
+                    if (global.importHashToPrefabPath && global.importHashToPrefabPath.has(candidate)) {
+                        const prefabInfo = global.importHashToPrefabPath.get(candidate);
+                        derivedPath = prefabInfo.path;
+                        derivedName = path.basename(derivedPath).replace(/\.(prefab)$/i, '');
+                        if (global.verbose) {
+                            logger.debug(`  [importHashToPrefabPath] importHash '${candidate}' -> prefab: '${derivedPath}'`);
                         }
-                        // 模糊匹配：如果精确匹配失败，尝试前缀匹配
-                        if (!derivedPath && derivedName && baseName.replace(/\.(prefab|fire)$/, '').startsWith(derivedName)) {
-                            derivedPath = resourcePath;
-                            if (global.verbose) {
-                                logger.debug(`  [bundlePathsMap] 模糊匹配 '${derivedName}' -> '${derivedPath}'`);
-                            }
-                        }
+                        break;
                     }
                 }
             }
