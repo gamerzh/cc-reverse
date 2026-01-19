@@ -671,6 +671,15 @@ const resourceProcessor = {
                 // 提取bundle名称
                 const bundleName = this.extractBundleName(filePath);
                 
+                // 跳过 main 和 internal 这两个默认 bundle（如果用户没有自定义资源）
+                // 因为它们通常只包含系统生成的编译文件
+                if (bundleName === 'main' || bundleName === 'internal') {
+                    if (global.verbose) {
+                        logger.debug(`跳过系统 bundle: ${bundleName}`);
+                    }
+                    continue;
+                }
+                
                 // 处理import目录中的序列化文件
                 if (ext === '.json' && filePath.includes('import')) {
                     await this.processSerializedFile(filePath, fileName, fileKey, bundleName, projectStructure);
