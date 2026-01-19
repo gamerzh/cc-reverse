@@ -137,6 +137,7 @@ async function reverseProject(options) {
     logger.info('bundle 文件处理完成，继续执行后续步骤...');
     
     // 开始处理
+    // 开始处理
     logger.info('开始分析代码...');
     await codeAnalyzer.analyze(code);
     logger.info('代码分析完成，继续执行后续步骤...');
@@ -144,6 +145,11 @@ async function reverseProject(options) {
     logger.info('开始处理资源...');
     await resourceProcessor.processResources();
     logger.info('资源处理完成，继续执行后续步骤...');
+
+    // 优先从原始源代码目录复制脚本（在所有其他处理之后，确保覆盖混淆代码）
+    logger.info('检查并复制原始源代码文件...');
+    await copySourceScripts(sourcePath, outputPath);
+    logger.info('原始源代码复制步骤完成');
     
     logger.info('生成项目文件...');
     await projectGenerator.generateProject();
@@ -546,6 +552,77 @@ function parseSettings(settings) {
     logger.error('解析设置文件时出错（AST）:', err);
     logger.warn('使用默认设置');
     global.settings = { CCSettings: {} };
+  }
+}
+
+/**
+ * 从原始源代码目录复制脚本文件
+ * @param {string} sourcePath 源项目路径（build/web-mobile）
+ * @param {string} outputPath 输出路径
+ * @returns {Promise<void>}
+ */
+async function copySourceScripts(sourcePath, outputPath) {
+  try {
+    // 检查原始源代码目录是否存在
+    // sourcePath 通常是 C:\...\build\web-mobile
+    // 源代码目录通常在 C:\...\assets\script（与 build 同级）
+    const parentDir = path.dirname(path.dirname(sourcePath));  // 获取项目根目录
+    const sourceScriptsDir = path.join(parentDir, 'assets', 'script');
+    
+    if (!fs.existsSync(sourceScriptsDir)) {
+      logger.debug(`原始源代码目录不存在: ${sourceScriptsDir}`);
+      return;
+    }
+
+    logger.info(`发现原始源代码目录: ${sourceScriptsDir}`);
+
+    // 先清除输出目录中的 Scripts 文件夹（删除之前生成的混淆代码）
+    const outputScriptsDir = path.join(outputPath, 'assets', 'Scripts');
+    if (fs.existsSync(outputScriptsDir)) {
+      logger.debug('清除旧的 Scripts 目录...');
+      fs.rmSync(outputScriptsDir, { recursive: true, force: true });
+    }
+
+    // 递归复制脚本文件
+    function copyScripts(sourceDir, targetDir) {
+      try {
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        const files = fs.readdirSync(sourceDir);
+        for (const file of files) {
+          const srcPath = path.join(sourceDir, file);
+          const stat = fs.statSync(srcPath);
+
+          if (stat.isDirectory()) {
+            // 递归复制子目录
+            const subTargetDir = path.join(targetDir, file);
+            copyScripts(srcPath, subTargetDir);
+          } else if (file.endsWith('.ts') || file.endsWith('.js')) {
+            // 复制脚本文件
+            const tgtPath = path.join(targetDir, file);
+            const content = fs.readFileSync(srcPath, 'utf-8');
+            fs.writeFileSync(tgtPath, content, 'utf-8');
+            if (global.verbose) {
+              logger.debug(`复制源代码文件: ${file}`);
+            }
+          } else if (file.endsWith('.meta')) {
+            // 复制所有 .meta 文件（包括脚本文件的 meta 和目录的 meta）
+            const tgtPath = path.join(targetDir, file);
+            const content = fs.readFileSync(srcPath, 'utf-8');
+            fs.writeFileSync(tgtPath, content, 'utf-8');
+          }
+        }
+      } catch (err) {
+        logger.error(`复制脚本文件时出错: ${err.message}`);
+      }
+    }
+
+    copyScripts(sourceScriptsDir, outputScriptsDir);
+    logger.info('原始源代码复制完成');
+  } catch (err) {
+    logger.error('复制源代码脚本时出错:', err);
   }
 }
 

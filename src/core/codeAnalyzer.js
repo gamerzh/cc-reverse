@@ -241,7 +241,14 @@ const codeAnalyzer = {
                                     }
                                     
                                     // 同步保存 AST 到文件
-                                    const str = JSON.stringify(first.body);
+                                    // 创建完整的 Program AST 以便后续正确生成代码
+                                    const programAst = {
+                                        type: 'Program',
+                                        body: first.body.body,
+                                        sourceType: 'module',
+                                        directives: []
+                                    };
+                                    const str = JSON.stringify(programAst);
                                     const astPath = require('path').join(global.paths.ast, `${value}.json`);
                                     
                                     // 写入文件
@@ -278,13 +285,33 @@ const codeAnalyzer = {
      */
     async processAstFiles() {
         try {
-            const astFiles = await fileManager.readDirectory(global.paths.ast);
+            // 检查 AST 目录是否存在
+            if (!global.paths.ast) {
+                logger.warn('AST 目录路径未设置');
+                return;
+            }
+
+            // 尝试读取 AST 目录
+            let astFiles = [];
+            try {
+                astFiles = await fileManager.readDirectory(global.paths.ast);
+            } catch (err) {
+                logger.warn(`读取 AST 目录失败: ${err.message}，跳过代码生成`);
+                return;
+            }
+
+            if (!astFiles || astFiles.length === 0) {
+                logger.debug('没有找到 AST 文件');
+                return;
+            }
+
+            // 过滤出 JSON 文件
+            const jsonFiles = astFiles.filter(f => f.endsWith('.json'));
             
-            for (const file of astFiles) {
+            for (const file of jsonFiles) {
                 const fullPath = path.join(global.paths.ast, file);
-                const content = await fileManager.readFile(fullPath);
-                
                 try {
+                    const content = await fileManager.readFile(fullPath);
                     const key = path.basename(file, '.json');
                     await this.generateCode(JSON.parse(content), key);
                 } catch (err) {
@@ -304,18 +331,25 @@ const codeAnalyzer = {
      */
     async generateCode(ast, filename) {
         try {
-            // 生成代码
-            let res = generator.default(ast, {})["code"];
+            // 生成代码：将 AST 转回源代码字符串
+            const generated = generator.default(ast, {});
+            let code = generated.code;
+            
+            if (!code || typeof code !== 'string') {
+                logger.warn(`生成代码 ${filename} 时失败：无法获取有效的代码字符串`);
+                return;
+            }
+
             const outputInfo = this.resolveScriptOutput(filename);
 
             // 确保输出目录存在
             await mkdir(path.dirname(outputInfo.outputPath), { recursive: true });
 
-            // 写入生成的代码
-            await appendFile(
+            // 直接写入生成的代码
+            await writeFile(
                 outputInfo.outputPath,
-                JSON.parse(JSON.stringify(res.slice(1, res.length - 1))),
-                { encoding: "utf-8", flag: 'w+' }
+                code,
+                { encoding: "utf-8" }
             );
 
             // 生成元数据文件（路径与脚本一致）
@@ -362,7 +396,11 @@ const codeAnalyzer = {
         const scriptName = info.scriptName || filename;
 
         // 尝试从 settings 中找到原始路径
-        const settingsPath = this.findScriptPathFromSettings(uuidCandidate);
+        let settingsPath = '';
+        if (uuidCandidate) {
+            settingsPath = this.findScriptPathFromSettings(uuidCandidate);
+        }
+        
         let rel = settingsPath || `Scripts/${scriptName}`;
         rel = this.normalizeScriptRelativePath(rel);
 
@@ -450,26 +488,20 @@ const codeAnalyzer = {
      * 解析 meta uuid（优先使用 cc._RF 提供的 uuid）
      */
     resolveMetaUuid(uuidCandidate, baseName) {
+        // 如果没有 uuid 候选，生成一个新的
+        if (!uuidCandidate) {
+            return uuidUtils.generateUuid();
+        }
+
         const ids = this.expandUuidCandidates(uuidCandidate);
         for (const id of ids) {
-            try {
-                const decoded = uuidUtils.decodeUuid(id);
-                if (decoded) return decoded;
-            } catch (e) {
-                // ignore
+            if (id && id.length > 0) {
+                return id;
             }
         }
-
-        // fallback：尝试用文件名推导
-        try {
-            const stem = baseName.replace(/\.(ts|js)$/i, '');
-            const decoded = uuidUtils.decodeUuid(uuidUtils.original_uuid(stem));
-            if (decoded) return decoded;
-        } catch (e) {
-            // ignore
-        }
-
-        return uuidUtils.generateUuid();
+        
+        // 如果所有都失败了，返回原始值或生成新的
+        return uuidCandidate || uuidUtils.generateUuid();
     }
 };
 
