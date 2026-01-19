@@ -150,6 +150,11 @@ async function reverseProject(options) {
     logger.info('检查并复制原始源代码文件...');
     await copySourceScripts(sourcePath, outputPath);
     logger.info('原始源代码复制步骤完成');
+
+    // 复制原始资源文件（场景、prefab、纹理等，如果存在的话）
+    logger.info('检查并复制原始资源文件...');
+    await copyOriginalResources(sourcePath, outputPath);
+    logger.info('原始资源复制步骤完成');
     
     logger.info('生成项目文件...');
     await projectGenerator.generateProject();
@@ -623,6 +628,76 @@ async function copySourceScripts(sourcePath, outputPath) {
     logger.info('原始源代码复制完成');
   } catch (err) {
     logger.error('复制源代码脚本时出错:', err);
+  }
+}
+
+/**
+ * 复制原始资源文件（场景、prefab、纹理等）
+ * @param {string} sourcePath - 源路径（build/web-mobile）
+ * @param {string} outputPath - 输出路径
+ */
+async function copyOriginalResources(sourcePath, outputPath) {
+  try {
+    // 获取项目根目录
+    const projectRoot = path.dirname(path.dirname(sourcePath));
+    const originalAssetsDir = path.join(projectRoot, 'assets');
+    
+    if (!fs.existsSync(originalAssetsDir)) {
+      logger.debug(`原始资源目录不存在: ${originalAssetsDir}`);
+      return;
+    }
+
+    logger.info(`发现原始资源目录: ${originalAssetsDir}`);
+
+    // 递归复制资源文件（除了 script 目录，因为已经单独处理了）
+    function copyAssets(sourceDir, targetDir) {
+      try {
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+
+        const files = fs.readdirSync(sourceDir);
+        for (const file of files) {
+          // 跳过 script 目录（已单独处理）
+          if (file === 'script' || file === 'script.meta') {
+            continue;
+          }
+
+          const srcPath = path.join(sourceDir, file);
+          const stat = fs.statSync(srcPath);
+
+          if (stat.isDirectory()) {
+            // 递归复制子目录
+            const subTargetDir = path.join(targetDir, file);
+            copyAssets(srcPath, subTargetDir);
+          } else {
+            // 只复制需要的文件类型
+            const ext = path.extname(file).toLowerCase();
+            if (['.fire', '.prefab', '.png', '.jpg', '.jpeg', '.gif', '.webp', 
+                  '.anim', '.animation', '.fx', '.effect', '.atlas', '.meta'].includes(ext)) {
+              const tgtPath = path.join(targetDir, file);
+              
+              // 检查目标文件是否已存在（优先保留已有的生成版本）
+              if (!fs.existsSync(tgtPath)) {
+                const content = fs.readFileSync(srcPath, 'utf-8');
+                fs.writeFileSync(tgtPath, content, 'utf-8');
+                if (global.verbose) {
+                  logger.debug(`复制资源文件: ${file}`);
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        logger.error(`复制资源文件时出错: ${err.message}`);
+      }
+    }
+
+    const outputAssetsDir = path.join(outputPath, 'assets');
+    copyAssets(originalAssetsDir, outputAssetsDir);
+    logger.info('原始资源复制完成');
+  } catch (err) {
+    logger.error('复制原始资源时出错:', err);
   }
 }
 
