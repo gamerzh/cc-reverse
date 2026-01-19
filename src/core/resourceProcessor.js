@@ -1004,6 +1004,17 @@ const resourceProcessor = {
     async processResourceFile(filePath, fileName, fileKey, bundleName, projectStructure) {
         const ext = path.extname(fileName);
         
+        // 跳过编译产物（不应该出现在逆向后的源工程中）
+        if (/^config\.[a-f0-9]+\.json$/.test(fileName) || 
+            /^index\.[a-f0-9]+\.js$/.test(fileName) ||
+            fileName === 'config.json' || 
+            fileName === 'index.js') {
+            if (global.verbose) {
+                logger.debug(`[跳过] 编译产物: ${fileName}`);
+            }
+            return;
+        }
+        
         // 跳过import目录中的序列化文件，因为它们已经被processSerializedFile处理过了
         if (filePath.includes('import')) {
             return;
