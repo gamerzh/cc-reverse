@@ -679,8 +679,18 @@ async function copyOriginalResources(sourcePath, outputPath) {
               
               // 检查目标文件是否已存在（优先保留已有的生成版本）
               if (!fs.existsSync(tgtPath)) {
-                const content = fs.readFileSync(srcPath, 'utf-8');
-                fs.writeFileSync(tgtPath, content, 'utf-8');
+                // 区分文本文件和二进制文件
+                const isTextFile = ['.fire', '.prefab', '.anim', '.animation', '.meta'].includes(ext);
+                
+                if (isTextFile) {
+                  // 文本文件使用 UTF-8 编码
+                  const content = fs.readFileSync(srcPath, 'utf-8');
+                  fs.writeFileSync(tgtPath, content, 'utf-8');
+                } else {
+                  // 图片和二进制文件直接复制（不进行编码转换）
+                  fs.copyFileSync(srcPath, tgtPath);
+                }
+                
                 if (global.verbose) {
                   logger.debug(`复制资源文件: ${file}`);
                 }
