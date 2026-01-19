@@ -29,6 +29,17 @@ npm install -g cc-reverse
 npm install cc-reverse
 ```
 
+## 技术栈
+
+本项目支持 **JavaScript (Node.js) 和 Python 混合开发**：
+- 核心功能主要使用 **JavaScript/Node.js** 实现
+- 数据处理和分析工具可使用 **Python**（优先选择更适合该任务的语言）
+- 两种语言可以混用，通过子进程或 API 进行调用
+
+在新增功能时，请根据具体需求选择最合适的语言：
+- **JavaScript**: 文件 I/O、流处理、命令行工具、性能关键路径
+- **Python**: 数据分析、复杂算法、机器学习相关功能、原型设计
+
 ## 使用方法
 
 ```bash
